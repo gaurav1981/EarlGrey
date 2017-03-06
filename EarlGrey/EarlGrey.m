@@ -16,83 +16,20 @@
 
 #import "EarlGrey.h"
 
-#import <dlfcn.h>
-#import <execinfo.h>
-#import <pthread.h>
-#import <signal.h>
-
-#import "Additions/CALayer+GREYAdditions.h"
-#import "Additions/XCTestCase+GREYAdditions.h"
 #import "Common/GREYAnalytics.h"
-#import "Common/GREYConfiguration.h"
-#import "Common/GREYDefines.h"
-#import "Common/GREYExposed.h"
-#import "Core/GREYKeyboard.h"
 #import "Event/GREYSyntheticEvents.h"
 #import "Exception/GREYDefaultFailureHandler.h"
-#import "Synchronization/GREYBeaconImageProtocol.h"
-#import "Synchronization/GREYUIThreadExecutor.h"
 
-// Handler for all EarlGrey failures.
-id<GREYFailureHandler> greyFailureHandler;
-
-static pthread_mutex_t gFailureHandlerLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
+NSString *const kGREYFailureHandlerKey = @"GREYFailureHandlerKey";
 
 @implementation EarlGreyImpl
 
 + (void)load {
   @autoreleasepool {
-    // These need to be set in load since someone might call EarlGrey assertion APIs directly
-    //  without calling into EarlGrey.
-    greyFailureHandler = [[GREYDefaultFailureHandler alloc] init];
-
-    grey_setupCrashHandlers();
-    grey_configureDeviceAndSimulatorForAutomation();
+    // These need to be set in load since someone might call GREYAssertXXX APIs without calling
+    // into EarlGrey.
+    resetFailureHandler();
   }
-}
-
-+ (void)initialize {
-  @autoreleasepool {
-    if ([self class] == [EarlGreyImpl class]) {
-      // Registering |GREYBeaconImageProtocol| protocol class ensures that requests for EarlGrey
-      // beacon images can be served by that class (without hitting external network).
-      [NSURLProtocol registerClass:[GREYBeaconImageProtocol class]];
-    }
-  }
-}
-
-// Global simulator/device settings that must be configured for EarlGrey to perform correctly.
-// These settings must be set before EarlGrey starts interacting with elements on screen.
-static void grey_configureDeviceAndSimulatorForAutomation() {
-  // This method ensures the software keyboard is shown.
-  [[UIKeyboardImpl sharedInstance] setAutomaticMinimizationEnabled:NO];
-
-  // For simulators and devices, this hack enables accessibility which is required for using
-  // anything related to accessibility.
-  // Before we can access AX settings preference, bundle needs to be loaded.
-  NSString *const accessibilitySettingsPrefBundle =
-      @"/System/Library/PreferenceBundles/AccessibilitySettings.bundle/AccessibilitySettings";
-  char const *const accessibilitySettingsPrefBundlePath =
-      [accessibilitySettingsPrefBundle fileSystemRepresentation];
-  void *handle = dlopen(accessibilitySettingsPrefBundlePath, RTLD_LAZY);
-  if (!handle) {
-    NSLog(@"dlopen couldn't open accessibility settings bundle");
-    abort();
-  }
-
-  Class axSettingsPrefControllerClass = NSClassFromString(@"AccessibilitySettingsController");
-  if (!axSettingsPrefControllerClass) {
-    NSLog(@"Couldn't find AccessibilitySettingsController class");
-    abort();
-  }
-
-  id axSettingPrefController = [[axSettingsPrefControllerClass alloc] init];
-  if (!axSettingPrefController) {
-    NSLog(@"Couldn't initialize axSettingPrefController");
-    abort();
-  }
-
-  [axSettingPrefController setAXInspectorEnabled:@(YES) specifier:nil];
 }
 
 + (instancetype)invokedFromFile:(NSString *)fileName lineNumber:(NSUInteger)lineNumber {
@@ -102,25 +39,20 @@ static void grey_configureDeviceAndSimulatorForAutomation() {
     instance = [[EarlGreyImpl alloc] initOnce];
   });
 
-  if ([greyFailureHandler respondsToSelector:@selector(setInvocationFile:andInvocationLine:)]) {
-    [greyFailureHandler setInvocationFile:fileName andInvocationLine:lineNumber];
+  SEL invocationFileAndLineSEL = @selector(setInvocationFile:andInvocationLine:);
+  id<GREYFailureHandler> failureHandler;
+  @synchronized (self) {
+    failureHandler = getFailureHandler();
   }
+  if ([failureHandler respondsToSelector:invocationFileAndLineSEL]) {
+    [failureHandler setInvocationFile:fileName andInvocationLine:lineNumber];
+  }
+  [[GREYAnalytics sharedInstance] didInvokeEarlGrey];
   return instance;
 }
 
 - (instancetype)initOnce {
   self = [super init];
-  if (self) {
-    // Add observer for test case tearDown event for usage tracking.
-    [[NSNotificationCenter defaultCenter] addObserverForName:kGREYXCTestCaseInstanceDidTearDown
-                                                      object:nil
-                                                       queue:nil
-                                                  usingBlock:^(NSNotification *note) {
-      if (GREY_CONFIG_BOOL(kGREYConfigKeyAnalyticsEnabled)) {
-        [GREYAnalytics trackTestCaseCompletion];
-      }
-    }];
-  }
   return self;
 }
 
@@ -129,15 +61,21 @@ static void grey_configureDeviceAndSimulatorForAutomation() {
 }
 
 - (void)setFailureHandler:(id<GREYFailureHandler>)handler {
-  [self grey_lockFailureHandler];
-  greyFailureHandler = (handler == nil) ? [[GREYDefaultFailureHandler alloc] init] : handler;
-  [self grey_unlockFailureHandler];
+  @synchronized ([self class]) {
+    if (handler) {
+      NSMutableDictionary *TLSDict = [[NSThread currentThread] threadDictionary];
+      [TLSDict setValue:handler forKey:kGREYFailureHandlerKey];
+    } else {
+      resetFailureHandler();
+    }
+  }
 }
 
 - (void)handleException:(GREYFrameworkException *)exception details:(NSString *)details {
-  [self grey_lockFailureHandler];
-  [greyFailureHandler handleException:exception details:details];
-  [self grey_unlockFailureHandler];
+  @synchronized ([self class]) {
+    id<GREYFailureHandler> failureHandler = getFailureHandler();
+    [failureHandler handleException:exception details:details];
+  }
 }
 
 - (BOOL)rotateDeviceToOrientation:(UIDeviceOrientation)deviceOrientation
@@ -147,69 +85,15 @@ static void grey_configureDeviceAndSimulatorForAutomation() {
 
 #pragma mark - Private
 
-- (void)grey_lockFailureHandler {
-  int lock = pthread_mutex_lock(&gFailureHandlerLock);
-  NSAssert(lock == 0, @"Failed to lock.");
+// Resets the failure handler. Not thread safe.
+static inline void resetFailureHandler() {
+  NSMutableDictionary *TLSDict = [[NSThread currentThread] threadDictionary];
+  [TLSDict setValue:[[GREYDefaultFailureHandler alloc] init] forKey:kGREYFailureHandlerKey];
 }
 
-- (void)grey_unlockFailureHandler {
-  int unlock = pthread_mutex_unlock(&gFailureHandlerLock);
-  NSAssert(unlock == 0, @"Failed to unlock.");
-}
-
-#pragma mark - Crash Handlers
-
-// Call only asynchronous-safe functions within signal handlers
-// See definition here: https://www.securecoding.cert.org/confluence/display/seccode/BB.+Definitions
-static void grey_signalHandler(int signal) {
-  char *signalString = strsignal(signal);
-  write(STDERR_FILENO, signalString, strlen(signalString));
-  write(STDERR_FILENO, "\n", 1);
-  static const int kMaxStackSize = 128;
-  void *callStack[kMaxStackSize];
-  const int numFrames = backtrace(callStack, kMaxStackSize);
-  backtrace_symbols_fd(callStack, numFrames, STDERR_FILENO);
-  kill(getpid(), SIGKILL);
-}
-
-static void grey_uncaughtExceptionHandler(NSException *exception) {
-  NSLog(@"Uncaught exception: %@", exception);
-  exit(-1);
-}
-
-static void grey_installSignalHander(int signalId, struct sigaction *hander) {
-  int returnValue = sigaction(signalId, hander, NULL);
-  if (returnValue != 0) {
-    NSLog(@"Error installing %s handler: '%s'.", strsignal(signalId), strerror(errno));
-  }
-}
-
-static void grey_setupCrashHandlers() {
-  NSLog(@"Crash handler setup started.");
-
-  struct sigaction signalActionHandler;
-  memset(&signalActionHandler, 0, sizeof(signalActionHandler));
-  int result = sigemptyset(&signalActionHandler.sa_mask);
-  if (result != 0) {
-    NSLog(@"Unable to empty sa_mask. Return value:%d", result);
-    exit(-1);
-  }
-  signalActionHandler.sa_handler = &grey_signalHandler;
-
-  // Register the signal handlers.
-  grey_installSignalHander(SIGQUIT, &signalActionHandler);
-  grey_installSignalHander(SIGILL, &signalActionHandler);
-  grey_installSignalHander(SIGTRAP, &signalActionHandler);
-  grey_installSignalHander(SIGABRT, &signalActionHandler);
-  grey_installSignalHander(SIGFPE, &signalActionHandler);
-  grey_installSignalHander(SIGBUS, &signalActionHandler);
-  grey_installSignalHander(SIGSEGV, &signalActionHandler);
-  grey_installSignalHander(SIGSYS, &signalActionHandler);
-
-  // Register the handler for uncaught exceptions.
-  NSSetUncaughtExceptionHandler(&grey_uncaughtExceptionHandler);
-
-  NSLog(@"Crash handlers setup complete.");
+inline id<GREYFailureHandler> getFailureHandler() {
+  NSMutableDictionary *TLSDict = [[NSThread currentThread] threadDictionary];
+  return [TLSDict valueForKey:kGREYFailureHandlerKey];
 }
 
 @end

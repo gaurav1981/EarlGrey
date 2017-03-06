@@ -15,8 +15,10 @@
 //
 
 #import <EarlGrey/GREYOperationQueueIdlingResource.h>
+#import <EarlGrey/GREYUIThreadExecutor+Internal.h>
 
 #import "GREYBaseTest.h"
+#import "GREYExposedForTesting.h"
 
 @interface GREYOperationQueueIdlingResourceTest : GREYBaseTest
 @end
@@ -66,6 +68,23 @@
   [lock unlock];
   [_backgroundOperationQ waitUntilAllOperationsAreFinished];
   XCTAssertTrue([idlingRes isIdleNow], @"Queue should be idle after executing the only task.");
+}
+
+- (void)testIdlingResourceWeaklyHeldAndDeregistersItself {
+  GREYOperationQueueIdlingResource *operationQueueIdlingResource;
+  @autoreleasepool {
+    __autoreleasing NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+
+    operationQueueIdlingResource =
+        [GREYOperationQueueIdlingResource resourceWithNSOperationQueue:queue
+                                                                  name:@"test"];
+    [[GREYUIThreadExecutor sharedInstance] registerIdlingResource:operationQueueIdlingResource];
+    XCTAssertTrue([[GREYUIThreadExecutor sharedInstance]
+        grey_isTrackingIdlingResource:operationQueueIdlingResource]);
+  }
+  XCTAssertTrue([operationQueueIdlingResource isIdleNow]);
+  XCTAssertFalse([[GREYUIThreadExecutor sharedInstance]
+      grey_isTrackingIdlingResource:operationQueueIdlingResource]);
 }
 
 @end

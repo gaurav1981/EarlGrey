@@ -15,11 +15,13 @@
 //
 
 #import <EarlGrey/GREYAppStateTracker.h>
+#import <EarlGrey/GREYAppStateTracker+Internal.h>
 #import <EarlGrey/NSObject+GREYAdditions.h>
 #import <EarlGrey/UIView+GREYAdditions.h>
 #import <objc/runtime.h>
 
 #import "GREYBaseTest.h"
+#import "GREYExposedForTesting.h"
 
 // Class that performs swizzled operations in dealloc to ensure they don't track
 @interface UIViewDealloc : UIView
@@ -181,28 +183,28 @@
 }
 
 - (void)testDrawRequestChangesPendingUIEventState {
-  // objc_precise_lifetime required so view is valid until end of the current scope.
-  __attribute__((objc_precise_lifetime)) UIView *view = [[UIView alloc] init];
+  // NS_VALID_UNTIL_END_OF_SCOPE required so view is valid until end of the current scope.
+  NS_VALID_UNTIL_END_OF_SCOPE UIView *view = [[UIView alloc] init];
   [view setNeedsDisplay];
-  XCTAssertEqual(kGREYPendingDrawCycle,
+  XCTAssertEqual(kGREYPendingDrawLayoutPass,
                  [[GREYAppStateTracker sharedInstance] currentState],
                  @"Should change state.");
 
   [[GREYAppStateTracker sharedInstance] grey_clearState];
   [view setNeedsDisplayInRect:CGRectMake(0, 0, 0, 0)];
-  XCTAssertEqual(kGREYPendingDrawCycle,
+  XCTAssertEqual(kGREYPendingDrawLayoutPass,
                  [[GREYAppStateTracker sharedInstance] currentState],
                  @"Should change state.");
 
   [[GREYAppStateTracker sharedInstance] grey_clearState];
   [view setNeedsLayout];
-  XCTAssertEqual(kGREYPendingDrawCycle,
+  XCTAssertEqual(kGREYPendingDrawLayoutPass,
                  [[GREYAppStateTracker sharedInstance] currentState],
                  @"Should change state.");
 
   [[GREYAppStateTracker sharedInstance] grey_clearState];
   [view setNeedsUpdateConstraints];
-  XCTAssertEqual(kGREYPendingDrawCycle,
+  XCTAssertEqual(kGREYPendingDrawLayoutPass,
                  [[GREYAppStateTracker sharedInstance] currentState],
                  @"Should change state.");
 }
@@ -242,19 +244,19 @@
   [root addSubview:child2];
   [child1 addSubview:child1A];
 
-  NSArray *subviews = [root grey_childElementsAssignableFromClass:[UIView class]];
+  NSArray *subviews = [root grey_childrenAssignableFromClass:[UIView class]];
   NSArray *expected = @[ child1, child1A, child2 ];
   XCTAssertEqualObjects(expected, subviews, @"Should return all subviews");
 
-  subviews = [root grey_childElementsAssignableFromClass:[UILabel class]];
+  subviews = [root grey_childrenAssignableFromClass:[UILabel class]];
   expected = @[ child1, child1A ];
   XCTAssertEqualObjects(expected, subviews, @"Should return all UILabel views");
 
-  subviews = [root grey_childElementsAssignableFromClass:[UISlider class]];
+  subviews = [root grey_childrenAssignableFromClass:[UISlider class]];
   expected = @[ child2 ];
   XCTAssertEqualObjects(expected, subviews, @"Should return just one UISlider view");
 
-  subviews = [root grey_childElementsAssignableFromClass:[UIWindow class]];
+  subviews = [root grey_childrenAssignableFromClass:[UIWindow class]];
   XCTAssertEqual(0u, [subviews count], @"Should return no view");
 }
 
@@ -301,6 +303,13 @@
 - (void)testSkipTrackingInteractableAnimations {
   void (^animationBlock)(void) = ^ {};
 
+  UIView *view1 = [[UIView alloc] init];
+  UIView *view2 = [[UIView alloc] init];
+
+  // Drain the run loop after initializing the UIViews. Initializing these views kicks off some
+  // Earl Grey tracking that we do not want to affect the test.
+  [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
+
   [UIView animateKeyframesWithDuration:1.0
                                  delay:0.1
                                options:UIViewKeyframeAnimationOptionAllowUserInteraction
@@ -326,8 +335,6 @@
                    completion:nil];
   XCTAssertTrue([[GREYUIThreadExecutor sharedInstance] grey_areAllResourcesIdle]);
 
-  UIView *view1 = [[UIView alloc] init];
-  UIView *view2 = [[UIView alloc] init];
   [UIView transitionFromView:view1
                       toView:view2
                     duration:1
@@ -342,14 +349,6 @@
                               UIViewAnimationOptionAllowUserInteraction)
                   animations:animationBlock
                   completion:nil];
-  XCTAssertTrue([[GREYUIThreadExecutor sharedInstance] grey_areAllResourcesIdle]);
-
-  [UIView performSystemAnimation:UISystemAnimationDelete
-                         onViews:@[ view1 ]
-                         options:(UIViewAnimationOptionLayoutSubviews |
-                                  UIViewAnimationOptionAllowUserInteraction)
-                      animations:animationBlock
-                      completion:nil];
   XCTAssertTrue([[GREYUIThreadExecutor sharedInstance] grey_areAllResourcesIdle]);
 }
 
@@ -536,7 +535,7 @@
 
 - (void)testNotTrackedDuringDealloc {
   {
-    __attribute((objc_precise_lifetime)) UIViewDealloc *view = [[UIViewDealloc alloc] init];
+    NS_VALID_UNTIL_END_OF_SCOPE UIViewDealloc *view = [[UIViewDealloc alloc] init];
 
     [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
     XCTAssertEqual([[GREYAppStateTracker sharedInstance] currentState], kGREYIdle,

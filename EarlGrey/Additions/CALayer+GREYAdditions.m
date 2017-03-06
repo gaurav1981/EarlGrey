@@ -16,15 +16,14 @@
 
 #import "Additions/CALayer+GREYAdditions.h"
 
-#import <objc/message.h>
+#include <objc/message.h>
 
 #import "Additions/CAAnimation+GREYAdditions.h"
 #import "Additions/NSObject+GREYAdditions.h"
 #import "Common/GREYConfiguration.h"
+#import "Common/GREYLogger.h"
 #import "Common/GREYSwizzler.h"
 #import "Synchronization/GREYAppStateTracker.h"
-
-static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
 
 @implementation CALayer (GREYAdditions)
 
@@ -76,8 +75,10 @@ static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
   CFTimeInterval maxAllowableAnimationDuration =
       (CFTimeInterval)GREY_CONFIG_DOUBLE(kGREYConfigKeyCALayerMaxAnimationDuration);
   if ([animation duration] > maxAllowableAnimationDuration) {
-    NSLog(@"Adjusting repeatCount and repeatDuration to 0 for animation %@", animation);
-    NSLog(@"Adjusting duration to %f for animation %@", maxAllowableAnimationDuration, animation);
+    GREYLogVerbose(@"Adjusting repeatCount and repeatDuration to 0 for animation %@", animation);
+    GREYLogVerbose(@"Adjusting duration to %f for animation %@",
+                   maxAllowableAnimationDuration,
+                   animation);
     animation.duration = maxAllowableAnimationDuration;
   }
   if (animation.duration != 0) {
@@ -85,10 +86,14 @@ static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
     float allowableRepeatCount = (float)(allowableRepeatDuration / animation.duration);
     // Either repeatCount or repeatDuration is specified, not both.
     if (animation.repeatDuration > allowableRepeatDuration) {
-      NSLog(@"Adjusting repeatDuration to %f for animation %@", allowableRepeatDuration, animation);
+      GREYLogVerbose(@"Adjusting repeatDuration to %f for animation %@",
+                     allowableRepeatDuration,
+                     animation);
       animation.repeatDuration = allowableRepeatDuration;
     } else if (animation.repeatCount > allowableRepeatCount) {
-      NSLog(@"Adjusting repeatCount to %f for animation %@", allowableRepeatCount, animation);
+      GREYLogVerbose(@"Adjusting repeatCount to %f for animation %@",
+                     allowableRepeatCount,
+                     animation);
       animation.repeatCount = allowableRepeatCount;
     }
   }
@@ -97,11 +102,11 @@ static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
 - (void)grey_pauseAnimations {
   if (self.animationKeys.count > 0) {
     // Keep track of animation keys that have been idled. Used for resuming tracking.
-    NSMutableSet *pausedAnimationKeys = objc_getAssociatedObject(self, kPausedAnimationKeys);
+    NSMutableSet *pausedAnimationKeys = [self grey_pausedAnimationKeys];
     if (!pausedAnimationKeys) {
       pausedAnimationKeys = [[NSMutableSet alloc] init];
       objc_setAssociatedObject(self,
-                               kPausedAnimationKeys,
+                               @selector(grey_pauseAnimations),
                                pausedAnimationKeys,
                                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
@@ -123,7 +128,7 @@ static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
 }
 
 - (void)grey_resumeAnimations {
-  NSMutableSet *pausedAnimationKeys = objc_getAssociatedObject(self, kPausedAnimationKeys);
+  NSMutableSet *pausedAnimationKeys = [self grey_pausedAnimationKeys];
   for (NSString *key in pausedAnimationKeys) {
     CAAnimation *animation = [self animationForKey:key];
     if ([animation grey_animationState] == kGREYAnimationStarted) {
@@ -141,7 +146,7 @@ static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
   }
 }
 
-# pragma mark - Swizzled Implementations
+#pragma mark - Swizzled Implementations
 
 - (void)greyswizzled_removeAllAnimations {
   for (NSString *key in [self animationKeys]) {
@@ -186,36 +191,36 @@ static void const *const kPausedAnimationKeys = &kPausedAnimationKeys;
 }
 
 - (void)greyswizzled_setNeedsDisplayInRect:(CGRect)invalidRect {
-  NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingDrawCycle, self);
+  NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingDrawLayoutPass, self);
   // Next runloop drain will perform the draw pass.
   dispatch_async(dispatch_get_main_queue(), ^{
-    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingDrawCycle, elementID);
+    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingDrawLayoutPass, elementID);
   });
   INVOKE_ORIGINAL_IMP1(void, @selector(greyswizzled_setNeedsDisplayInRect:), invalidRect);
 }
 
 - (void)greyswizzled_setNeedsDisplay {
-  NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingDrawCycle, self);
+  NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingDrawLayoutPass, self);
   // Next runloop drain will perform the draw pass.
   dispatch_async(dispatch_get_main_queue(), ^{
-    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingDrawCycle, elementID);
+    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingDrawLayoutPass, elementID);
   });
   INVOKE_ORIGINAL_IMP(void, @selector(greyswizzled_setNeedsDisplay));
 }
 
 - (void)greyswizzled_setNeedsLayout {
-  NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingDrawCycle, self);
+  NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingDrawLayoutPass, self);
   // Next runloop drain will perform the layout pass.
   dispatch_async(dispatch_get_main_queue(), ^ {
-    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingDrawCycle, elementID);
+    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingDrawLayoutPass, elementID);
   });
   INVOKE_ORIGINAL_IMP(void, @selector(greyswizzled_setNeedsLayout));
 }
 
-#pragma mark - Methods Only For Testing
+#pragma mark - Internal Methods Exposed For Testing
 
-- (NSMutableSet *)pausedAnimationKeys {
-  return objc_getAssociatedObject(self, kPausedAnimationKeys);
+- (NSMutableSet *)grey_pausedAnimationKeys {
+  return objc_getAssociatedObject(self, @selector(grey_pauseAnimations));
 }
 
 @end

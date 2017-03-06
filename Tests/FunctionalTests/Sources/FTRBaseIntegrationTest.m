@@ -16,27 +16,16 @@
 
 #import "FTRBaseIntegrationTest.h"
 
-#import "FTRMainViewController.h"
-#import "FTRNetworkProxy.h"
-
 @implementation FTRBaseIntegrationTest {
   // This variable holds the current failure handler before any tests sully it.
   id<GREYFailureHandler> _currentFailureHandler;
 }
 
-+ (void)initialize {
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    // Start proxying all requests.
-    [FTRNetworkProxy ftr_setProxyEnabled:YES];
-    [FTRNetworkProxy ftr_addProxyRuleForUrlsMatchingRegexString:@".*" responseString:@"OK"];
-  });
-}
-
 - (void)setUp {
   [super setUp];
-  _currentFailureHandler = greyFailureHandler;
-  // By default, make all test assume portrait position.
+  _currentFailureHandler =
+      [[[NSThread currentThread] threadDictionary] valueForKey:kGREYFailureHandlerKey];
+  // By default, make all tests assume portrait position.
   [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationPortrait errorOrNil:nil];
 }
 
@@ -50,6 +39,7 @@
   }
   [navController popToRootViewControllerAnimated:YES];
 
+  [[GREYConfiguration sharedInstance] reset];
   [EarlGrey setFailureHandler:_currentFailureHandler];
 
   [super tearDown];

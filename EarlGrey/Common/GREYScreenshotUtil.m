@@ -56,7 +56,7 @@ static const NSUInteger kBytesPerPixel = 4;
     CGContextTranslateCTM(bitmapContextRef,
                           -CGRectGetWidth(windowRect) * windowAnchor.x,
                           -CGRectGetHeight(windowRect) * windowAnchor.y);
-    if (!iOS8_OR_ABOVE()) {
+    if (!iOS8_0_OR_ABOVE()) {
       if (orientation == UIInterfaceOrientationLandscapeLeft) {
         // Rotate pi/2
         CGContextConcatCTM(bitmapContextRef, CGAffineTransformMake(0, 1, -1, 0, 0, 0));
@@ -114,8 +114,13 @@ static const NSUInteger kBytesPerPixel = 4;
 }
 
 + (UIImage *)snapshotElement:(id)element {
-  CGRect elementAXFrame = CGRectIntersection([UIScreen mainScreen].bounds,
-                                             [element accessibilityFrame]);
+  if (![element respondsToSelector:@selector(accessibilityFrame)]) {
+    return nil;
+  }
+  CGRect elementAXFrame = [element accessibilityFrame];
+  if (CGRectIsEmpty(elementAXFrame)) {
+    return nil;
+  }
   UIView *viewToSnapshot = [element isKindOfClass:[UIView class]] ? (UIView *)element :
       [element grey_viewContainingSelf];
   CGRect viewAXFrame = [viewToSnapshot accessibilityFrame];
@@ -170,7 +175,7 @@ static const NSUInteger kBytesPerPixel = 4;
   }
 }
 
-#pragma mark - Private
+#pragma mark - Package Internal
 
 + (UIImage *)grey_takeScreenshotAfterScreenUpdates:(BOOL)afterScreenUpdates {
   UIScreen *mainScreen = [UIScreen mainScreen];
@@ -183,9 +188,11 @@ static const NSUInteger kBytesPerPixel = 4;
   return orientedScreenshot;
 }
 
+#pragma mark - Private
+
 + (CGRect)grey_rectRotatedToStatusBarOrientation:(CGRect)rect {
   UIInterfaceOrientation orientation = [UIApplication sharedApplication].statusBarOrientation;
-  if (!iOS8_OR_ABOVE() && UIInterfaceOrientationIsLandscape(orientation)) {
+  if (!iOS8_0_OR_ABOVE() && UIInterfaceOrientationIsLandscape(orientation)) {
     CGAffineTransform rotationTransform = CGAffineTransformMake(0, 1, 1, 0, 0, 0);
     return CGRectApplyAffineTransform(rect, rotationTransform);
   }

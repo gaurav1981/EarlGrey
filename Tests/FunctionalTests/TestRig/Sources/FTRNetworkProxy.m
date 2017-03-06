@@ -57,6 +57,12 @@ static NSString *const kFTRNetworkProxyErrorDomain =
   }
 }
 
++ (BOOL)ftr_isProxyEnabled {
+  @synchronized(self) {
+    return gFTRProxyEnabled;
+  }
+}
+
 + (void)ftr_addProxyRuleForUrlsMatchingRegexString:(NSString *)regexString
                                     responseString:(NSString *)data {
   @synchronized(self) {
@@ -161,7 +167,7 @@ static NSString *const kFTRNetworkProxyErrorDomain =
 }
 
 /**
- * @remark This is a required overidden method.
+ *  @remark This is a required overidden method.
  *
  *  @return A canonical version of the specified @c request.
  */

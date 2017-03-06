@@ -16,11 +16,13 @@
 
 #import "Synchronization/GREYAppStateTracker.h"
 
-#import <objc/runtime.h>
-#import <pthread.h>
+#include <objc/runtime.h>
+#include <pthread.h>
 
 #import "Additions/NSObject+GREYAdditions.h"
+#import "Common/GREYConfiguration.h"
 #import "Common/GREYDefines.h"
+#import "Common/GREYLogger.h"
 
 /**
  *  Lock protecting element state map.
@@ -39,11 +41,17 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
    */
   NSMapTable *_elementIDToCallStack;
   /**
-   * Set of all tracked element IDs. Used for efficient membership checking and to work around
-   * NSMapTable's lack of a guarantee to immediately purge weak keys.
-   * Access should be guarded by @c gStateLock lock.
+   *  Set of all tracked element IDs. Used for efficient membership checking and to work around
+   *  NSMapTable's lack of a guarantee to immediately purge weak keys.
+   *  Access should be guarded by @c gStateLock lock.
    */
   NSHashTable *_elementIDs;
+  /**
+   *  The app state for which any state changes are not tracked. This can be a bitwise-OR of
+   *  multiple app states.
+   *  Access should be guarded by @c gStateLock lock.
+   */
+  GREYAppState _ignoredAppState;
 }
 
 + (instancetype)sharedInstance {
@@ -67,6 +75,7 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
     _elementIDToState = [NSMapTable weakToStrongObjectsMapTable];
     _elementIDToCallStack = [NSMapTable weakToStrongObjectsMapTable];
     _elementIDs = [NSHashTable weakObjectsHashTable];
+    _ignoredAppState = kGREYIdle;
   }
   return self;
 }
@@ -95,8 +104,54 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
   }] unsignedIntegerValue];
 }
 
-- (BOOL)isIdle {
-  return [[self grey_performBlockInCriticalSection:^id{
+/**
+ *  @return A string description of current pending UI event state.
+ */
+- (NSString *)description {
+  NSMutableString *description = [[NSMutableString alloc] init];
+
+  [self grey_performBlockInCriticalSection:^id {
+    GREYAppState state = [self currentState];
+    [description appendString:[self grey_stringFromState:state]];
+
+    if (state != kGREYIdle) {
+      [description appendString:@"\n\n"];
+      [description appendString:@"Full state transition call stack for all elements:\n"];
+      for (NSString *internalElementID in _elementIDs) {
+        NSNumber *stateNumber = (NSNumber *)[_elementIDToState objectForKey:internalElementID];
+        [description appendFormat:@"<%@> => %@\n",
+            internalElementID,
+            [self grey_stringFromState:[stateNumber unsignedIntegerValue]]];
+        [description appendFormat:@"%@\n", [_elementIDToCallStack objectForKey:internalElementID]];
+      }
+    }
+    return nil;
+  }];
+  return description;
+}
+
+
+- (void)ignoreChangesToState:(GREYAppState)state {
+  NSAssert(state != kGREYIdle, @"Do not directly set kGREYIdle as the state to be ignored, to "
+                               @"clear the states, use GREYAppStateTracker::clearIgnoredStates "
+                               @"instead.");
+  [self grey_performBlockInCriticalSection:^id {
+    _ignoredAppState = state;
+    return nil;
+  }];
+}
+
+- (void)clearIgnoredStates {
+  [self grey_performBlockInCriticalSection:^id {
+    _ignoredAppState = kGREYIdle;
+    return nil;
+  }];
+}
+
+#pragma mark - GREYIdlingResource
+
+- (BOOL)isIdleNow {
+  return [[self grey_performBlockInCriticalSection:^id {
     BOOL idle;
     // Make sure that we immediately release any autoreleased internal keys.
     @autoreleasepool {
@@ -107,95 +162,92 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
   }] boolValue];
 }
 
-/**
- *  @return A string description of current pending UI event state.
- */
-- (NSString *)description {
-  NSMutableString *description = [[NSMutableString alloc] init];
-
-  [self grey_performBlockInCriticalSection:^id {
-    GREYAppState state = [self currentState];
-    [description appendString:[self stringFromState:state]];
-
-    if (state != kGREYIdle) {
-      [description appendString:@"\n\n"];
-      [description appendString:@"Full state transition call stack for all elements:\n"];
-      for (NSString *internalElementID in _elementIDs) {
-        NSNumber *stateNumber = (NSNumber *)[_elementIDToState objectForKey:internalElementID];
-        [description appendFormat:@"<%@> => %@\n",
-            internalElementID,
-            [self stringFromState:[stateNumber unsignedIntegerValue]]];
-        [description appendFormat:@"%@\n", [_elementIDToCallStack objectForKey:internalElementID]];
-      }
-    }
-    return nil;
-  }];
-  return description;
+- (NSString *)idlingResourceName {
+  return NSStringFromClass([self class]);
 }
 
-- (NSString *)stringFromState:(GREYAppState)state {
+- (NSString *)idlingResourceDescription {
+  return [self description];
+}
+
+#pragma mark - Private
+
+- (NSString *)grey_stringFromState:(GREYAppState)state {
   NSMutableArray *eventStateString = [[NSMutableArray alloc] init];
   if (state == kGREYIdle) {
     return @"Idle";
   }
 
-  if (state & kGREYPendingDrawCycle) {
-    [eventStateString addObject:@"Waiting for a draw/layout pass to complete"];
+  if (state & kGREYPendingDrawLayoutPass) {
+    [eventStateString addObject:@"Waiting for UIView's draw/layout pass to complete. A draw/layout "
+                                @"pass normally completes in the next runloop drain."];
   }
   if (state & kGREYPendingViewsToAppear) {
-    [eventStateString addObject:@"Waiting for UIViews to appear"];
+    [eventStateString addObject:@"Waiting for viewDidAppear: call on this view controller. Please "
+                                @"ensure that this view controller and its subclasses call "
+                                @"through to their super's implementation"];
   }
   if (state & kGREYPendingViewsToDisappear) {
-    [eventStateString addObject:@"Waiting for UIViews to disappear"];
+    [eventStateString addObject:@"Waiting for viewDidDisappear: call on this view controller. "
+                                @"Please ensure that this view controller and it's subclasses call "
+                                @"through to their super's implementation"];
   }
   if (state & kGREYPendingKeyboardTransition) {
-    [eventStateString addObject:@"Waiting for keyboard transition"];
+    [eventStateString addObject:@"Waiting for keyboard transition to finish."];
   }
   if (state & kGREYPendingCAAnimation) {
-    [eventStateString addObject:@"Waiting for CAAnimations to finish"];
-  }
-  if (state & kGREYPendingActionSheetToDisappear) {
-    [eventStateString addObject:@"Waiting for UIActionSheet to disappear"];
-  }
-  if (state & kGREYPendingUIViewAnimation) {
-    [eventStateString addObject:@"Waiting for UIView Animations to finish"];
-  }
-  if (state & kGREYPendingMoveToParent) {
-    [eventStateString addObject:@"Waiting for UIViewController to move to parent"];
+    [eventStateString addObject:@"Waiting for CAAnimations to finish. Continuous animations may "
+                                @"never finish and must be stopped explicitly. Animations attached "
+                                @"to hidden view may still be running in the background."];
   }
   if (state & kGREYPendingRootViewControllerToAppear) {
-    [eventStateString addObject:@"Waiting for root UIViewController to appear"];
+    [eventStateString addObject:@"Waiting for window's rootViewController to appear. "
+                                @"This should happen in the next runloop drain after a window's "
+                                @"state is changed to visible."];
   }
   if (state & kGREYPendingUIWebViewAsyncRequest) {
-    [eventStateString addObject:@"Waiting for UIWebView to finish loading async request"];
+    [eventStateString addObject:@"Waiting for UIWebView to finish loading asynchronous request."];
   }
   if (state & kGREYPendingNetworkRequest) {
-    [eventStateString addObject:@"Waiting for network requests to finish"];
+    NSString *stateMsg =
+        [NSString stringWithFormat:@"Waiting for network requests to finish. By default, EarlGrey "
+                                   @"tracks all network requests. To tell EarlGrey of unwanted or "
+                                   @"on-going network activity that should be ignored, use "
+                                   @"%@.", [GREYConfiguration class]];
+    [eventStateString addObject:stateMsg];
   }
   if (state & kGREYPendingGestureRecognition) {
-    [eventStateString addObject:@"Waiting for gesture recognizer to detect or fail"];
+    [eventStateString addObject:@"Waiting for gesture recognizer to detect or fail a recently "
+                                @"started gesture."];
   }
   if (state & kGREYPendingUIScrollViewScrolling) {
-    [eventStateString addObject:@"Waiting for UIScrollView to finish scrolling"];
+    [eventStateString addObject:@"Waiting for UIScrollView to finish scrolling and come to "
+                                @"standstill."];
   }
   if (state & kGREYPendingUIAnimation) {
-    [eventStateString addObject:@"Waiting for UIAnimation to be marked as stopped"];
+    [eventStateString addObject:@"Waiting for UIAnimation to complete. This internal animation "
+                                @"is triggered by UIKit and completes when -[UIAnimation markStop] "
+                                @"is invoked."];
   }
   if (state & kGREYIgnoringSystemWideUserInteraction) {
-    [eventStateString addObject:@"System Wide Events are being ignored"];
+    NSString *stateMsg =
+        [NSString stringWithFormat:@"System wide interaction events are being ignored via %@. "
+                                   @"call %@ to enable interactions again.",
+                                   NSStringFromSelector(@selector(beginIgnoringInteractionEvents)),
+                                   NSStringFromSelector(@selector(endIgnoringInteractionEvents))];
+
+    [eventStateString addObject:stateMsg];
   }
 
-  NSAssert([eventStateString count] > 0, @"Did we forget some states?");
+  NSAssert([eventStateString count] > 0, @"Did we forget to describe some states?");
   return [eventStateString componentsJoinedByString:@"\n"];
 }
 
-#pragma mark - Private
-
 - (id)grey_performBlockInCriticalSection:(id (^)())block {
-  int lock = pthread_mutex_lock(&gStateLock);
+  GREY_UNUSED_VARIABLE int lock = pthread_mutex_lock(&gStateLock);
   NSAssert(lock == 0, @"Failed to lock.");
   id retVal = block();
-  int unlock = pthread_mutex_unlock(&gStateLock);
+  GREY_UNUSED_VARIABLE int unlock = pthread_mutex_unlock(&gStateLock);
   NSAssert(unlock == 0, @"Failed to unlock.");
 
   return retVal;
@@ -219,7 +271,8 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
   NSAssert((element && !externalElementID || !element && externalElementID),
            @"Provide either a valid element or a valid externalElementID, not both.");
   return [self grey_performBlockInCriticalSection:^id {
-    static void const *const stateAssociationKey = &stateAssociationKey;
+    // Modify State to remove ignored states from those being changed.
+    GREYAppState modifiedState = busy ? state & (~_ignoredAppState) : state;
     NSString *elementIDToReturn;
 
     // This autorelease pool makes sure we release any autoreleased objects added to the tracker
@@ -263,11 +316,12 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
           // Explicit ownership.
           internalElementID = [[NSString alloc] initWithString:potentialInternalElementID];
           // When element deallocates, so will internalElementID causing our weak references to it
-          // to be removed.
+          // to be removed and state for that element to clear up.
           objc_setAssociatedObject(element,
-                                   stateAssociationKey,
+                                   @selector(currentState),
                                    internalElementID,
-                                   OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                                   // Use atomic retain here to avoid race.
+                                   OBJC_ASSOCIATION_RETAIN);
         } else {
           // External element id was specified and we couldn't find an internal element id
           // associated to the external element id. This could happen if element was deallocated and
@@ -281,14 +335,15 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
       NSNumber *originalStateNumber = [_elementIDToState objectForKey:internalElementID];
       GREYAppState originalState =
           originalStateNumber ? [originalStateNumber unsignedIntegerValue] : kGREYIdle;
-      GREYAppState newState = busy ? (originalState | state) : (originalState & ~state);
+      GREYAppState newState =
+          busy ? (originalState | modifiedState) : (originalState & ~modifiedState);
 
       if (newState == kGREYIdle) {
         [_elementIDs removeObject:internalElementID];
         [_elementIDToState removeObjectForKey:internalElementID];
         [_elementIDToCallStack removeObjectForKey:internalElementID];
         if (element) {
-          objc_setAssociatedObject(element, stateAssociationKey, nil, OBJC_ASSOCIATION_ASSIGN);
+          objc_setAssociatedObject(element, @selector(currentState), nil, OBJC_ASSOCIATION_ASSIGN);
         }
       } else {
         // Track the element with internalElementID. When internalElementID's underlying element
@@ -305,15 +360,6 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
   }];
 }
 
-- (void)grey_clearState {
-  [self grey_performBlockInCriticalSection:^id {
-    [_elementIDs removeAllObjects];
-    [_elementIDToState removeAllObjects];
-    [_elementIDToCallStack removeAllObjects];
-    return nil;
-  }];
-}
-
 #pragma mark - Methods Only For Testing
 
 - (GREYAppState)grey_lastKnownStateForElement:(id)element {
@@ -324,6 +370,17 @@ static pthread_mutex_t gStateLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
 
     return @(state);
   }] unsignedIntegerValue];
+}
+
+#pragma mark - Package Internal
+
+- (void)grey_clearState {
+  [self grey_performBlockInCriticalSection:^id {
+    [_elementIDs removeAllObjects];
+    [_elementIDToState removeAllObjects];
+    [_elementIDToCallStack removeAllObjects];
+    return nil;
+  }];
 }
 
 @end

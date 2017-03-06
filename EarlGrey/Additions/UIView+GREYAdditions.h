@@ -26,7 +26,7 @@
  *
  *  @return A breadth-first / level ordered array of subviews that can be safely casted to @c klass.
  */
-- (NSArray *)grey_childElementsAssignableFromClass:(Class)klass;
+- (NSArray *)grey_childrenAssignableFromClass:(Class)klass;
 
 /**
  *  Makes sure that subview @c view is always on top, even if other subviews are added in front of
@@ -34,7 +34,7 @@
  *
  *  @param subview The view to keep as the top-most fixed subview.
  */
-- (void)grey_keepSubviewOnTopAndFrameFixed:(UIView *)subview;
+- (void)grey_keepSubviewOnTopAndFrameFixed:(UIView *)view;
 
 /**
  * Sets the view's alpha value to the provided @c alpha value, storing the current value so it can

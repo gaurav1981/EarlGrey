@@ -14,9 +14,12 @@
 // limitations under the License.
 //
 
+#import <CoreGraphics/CoreGraphics.h>
 #import <EarlGrey/GREYConstants.h>
 #import <EarlGrey/GREYDefines.h>
 #import <Foundation/Foundation.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 @protocol GREYMatcher;
 
@@ -77,6 +80,13 @@
  *  @return A matcher for the accessibility hint of an accessible element.
  */
 + (id<GREYMatcher>)matcherForAccessibilityHint:(NSString *)hint;
+
+/**
+ *  Matcher for UI element with accessiblity focus.
+ *
+ *  @return A matcher for the accessibility focus of an accessible element.
+ */
++ (id<GREYMatcher>)matcherForAccessibilityElementIsFocused;
 
 /**
  *  Matcher for UI elements of type UIButton, UILabel, UITextField or UITextView displaying the
@@ -152,11 +162,13 @@
 + (id<GREYMatcher>)matcherForAccessibilityElement;
 
 /**
- *  Matcher for views that are subclass of the provided @c klass.
+ *  Matcher for elements that are instances of the provided @c klass or any class that inherits from
+ *  it.
  *
- *  @param klass A UIView class or subclass.
+ *  @param klass A class.
  *
- *  @return A matcher that confirms if the given class is a subview of the provided class.
+ *  @return A matcher that checks if the given element's class is the provided @c klass or any of
+ *          its derived classes.
  */
 + (id<GREYMatcher>)matcherForKindOfClass:(Class)klass;
 
@@ -221,6 +233,16 @@
 + (id<GREYMatcher>)matcherForButtonTitle:(NSString *)title;
 
 /**
+ *  Matcher that matches UIScrollView that has contentOffset as @c offset.
+ *
+ *  @param offset The content offset to be checked on the UIScrollView being
+ *                matched.
+ *
+ *  @return A matcher to confirm UIScrollView content offset.
+ */
++ (id<GREYMatcher>)matcherForScrollViewContentOffset:(CGPoint)offset;
+
+/**
  *  Matcher that matches UIStepper with value as @c value.
  *
  *  @param value A value that the UIStepper should be checked for.
@@ -265,11 +287,25 @@
 + (id<GREYMatcher>)matcherForDatePickerValue:(NSDate *)value;
 
 /**
- *  Matcher that verifies that if the element is a UIControl, it is enabled.
+ *  Matcher that verifies whether an element, that is a UIControl, is enabled.
  *
- *  @return A matcher checking if a UI element is an enabled UIControl.
+ *  @return A matcher for checking whether a UI element is an enabled UIControl.
  */
 + (id<GREYMatcher>)matcherForEnabledElement;
+
+/**
+ *  Matcher that verifies whether an element, that is a UIControl, is selected.
+ *
+ *  @return A matcher for checking whether a UI element is a selected UIControl.
+ */
++ (id<GREYMatcher>)matcherForSelectedElement;
+
+/**
+ *  Matcher that verifies whether a view has its userInteractionEnabled property set to @c YES.
+ *
+ *  @return A matcher for checking whether a view' userInteractionEnabled property is set to @c YES.
+ */
++ (id<GREYMatcher>)matcherForUserInteractionEnabled;
 
 /**
  *  Matcher that verifies that the selected element satisfies the given constraints to the
@@ -337,9 +373,9 @@
 /**
  *  A Matcher that checks if a provided object is equal to the specified @c value. The equality is
  *  determined by calling the @c isEqual: method of the object being examined. In case the @c
- *  value is nil, then the object itself is checked to be nil.
+ *  value is @c nil, then the object itself is checked to be @c nil.
  *
- *  @param object The object to be checked for equality. Please ensure that scalar values are
+ *  @param value  The value to be checked for equality. Please ensure that scalar types are
  *                passed in as boxed (object) values.
  *
  *  @return A matcher that checks if an object is equal to the provided one.
@@ -368,6 +404,17 @@
  */
 + (id<GREYMatcher>)matcherForGreaterThan:(id)value;
 
+/**
+ *  Matcher that matches a UIScrollView scrolled to content @c edge.
+ *
+ *  @param edge The content edge UIScrollView should be scrolled to.
+ *
+ *  @return A matcher that matches a UIScrollView scrolled to content @c edge.
+ */
++ (id<GREYMatcher>)matcherForScrolledToContentEdge:(GREYContentEdge)edge;
+
+@end
+
 #if !(GREY_DISABLE_SHORTHAND)
 
 /** Shorthand for GREYMatchers::matcherForKeyWindow. */
@@ -384,6 +431,9 @@ GREY_EXPORT id<GREYMatcher> grey_accessibilityValue(NSString *grey_accessibility
 
 /** Shorthand for GREYMatchers::matcherForAccessibilityTraits:. */
 GREY_EXPORT id<GREYMatcher> grey_accessibilityTrait(UIAccessibilityTraits traits);
+
+/** Shorthand for GREYMatchers::matcherForAccessibilityElementIsFocused. */
+GREY_EXPORT id<GREYMatcher> grey_accessibilityFocused(void);
 
 /** Shorthand for GREYMatchers::matcherForAccessibilityHint:. */
 GREY_EXPORT id<GREYMatcher> grey_accessibilityHint(NSString *hint);
@@ -433,6 +483,9 @@ GREY_EXPORT id<GREYMatcher> grey_descendant(id<GREYMatcher> descendantMatcher);
 /** Shorthand for GREYMatchers::matcherForButtonTitle:. */
 GREY_EXPORT id<GREYMatcher> grey_buttonTitle(NSString *text);
 
+/** Shorthand for GREYMatchers::matcherForScrollViewContentOffset:. */
+GREY_EXPORT id<GREYMatcher> grey_scrollViewContentOffset(CGPoint offset);
+
 /** Shorthand for GREYMatchers::matcherForStepperValue:. */
 GREY_EXPORT id<GREYMatcher> grey_stepperValue(double value);
 
@@ -448,6 +501,12 @@ GREY_EXPORT id<GREYMatcher> grey_datePickerValue(NSDate *date);
 /** Shorthand for GREYMatchers::matcherForEnabledElement. */
 GREY_EXPORT id<GREYMatcher> grey_enabled(void);
 
+/** Shorthand for GREYMatchers::matcherForSelectedElement. */
+GREY_EXPORT id<GREYMatcher> grey_selected(void);
+
+/** Shorthand for GREYMatchers::matcherForUserInteractionEnabled. */
+GREY_EXPORT id<GREYMatcher> grey_userInteractionEnabled(void);
+
 /** Shorthand for GREYMatchers::matcherForConstraints:toReferenceElementMatching:. */
 GREY_EXPORT id<GREYMatcher> grey_layout(NSArray *constraints,
                                         id<GREYMatcher> referenceElementMatcher);
@@ -461,21 +520,24 @@ GREY_EXPORT id<GREYMatcher> grey_notNil(void);
 /** Shorthand for GREYMatchers::matcherForSwitchWithOnState:. */
 GREY_EXPORT id<GREYMatcher> grey_switchWithOnState(BOOL on);
 
-/** Shorthand for GREYMatchers::matcherForCloseTo:delta. */
+/** Shorthand for GREYMatchers::matcherForCloseTo:. */
 GREY_EXPORT id<GREYMatcher> grey_closeTo(double value, double delta);
 
 /** Shorthand for GREYMatchers::matcherForAnything. */
-GREY_EXPORT id<GREYMatcher> grey_anything();
+GREY_EXPORT id<GREYMatcher> grey_anything(void);
 
-/** Shorthand for GREYMatchers::matcherForEqualTo:object. */
+/** Shorthand for GREYMatchers::matcherForEqualTo:. */
 GREY_EXPORT id<GREYMatcher> grey_equalTo(id value);
 
-/** Shorthand for GREYMatchers::matcherForLessThan:value. */
+/** Shorthand for GREYMatchers::matcherForLessThan:. */
 GREY_EXPORT id<GREYMatcher> grey_lessThan(id value);
 
-/** Shorthand for GREYMatchers::matcherForGreaterThan:value. */
+/** Shorthand for GREYMatchers::matcherForGreaterThan:. */
 GREY_EXPORT id<GREYMatcher> grey_greaterThan(id value);
+
+/** Shorthand for GREYMatchers::matcherForScrolledToContentEdge:. */
+GREY_EXPORT id<GREYMatcher> grey_scrolledToContentEdge(GREYContentEdge edge);
 
 #endif // GREY_DISABLE_SHORTHAND
 
-@end
+NS_ASSUME_NONNULL_END

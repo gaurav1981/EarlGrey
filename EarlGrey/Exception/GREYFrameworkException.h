@@ -17,6 +17,8 @@
 #import <EarlGrey/GREYDefines.h>
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 /**
  *  Generic framework failure.
  */
@@ -39,7 +41,7 @@ GREY_EXTERN NSString *const kGREYNilException;
 GREY_EXTERN NSString *const kGREYNotNilException;
 
 /**
- *  Thrown by the selection API when no element matches the selection matcher.
+ *  Thrown by the selection API when no UI element matches the selection matcher.
  */
 GREY_EXTERN NSString *const kGREYNoMatchingElementException;
 
@@ -54,6 +56,12 @@ GREY_EXTERN NSString *const kGREYMultipleElementsFoundException;
  *  app to become idle.
  */
 GREY_EXTERN NSString *const kGREYTimeoutException;
+
+/**
+ *  Thrown by the action API when the constraints required for performing the action are not
+ *  satisfied.
+ */
+GREY_EXTERN NSString *const kGREYConstraintFailedException;
 
 /**
  *  Exception raised by the framework which results in a test failure.
@@ -75,6 +83,22 @@ GREY_EXTERN NSString *const kGREYTimeoutException;
  *
  *  @return A GREYFrameworkException instance, initialized with a @c name and @c reason.
  */
-+ (GREYFrameworkException *)exceptionWithName:(NSString *)name reason:(NSString *)reason;
++ (instancetype)exceptionWithName:(NSString *)name reason:(nullable NSString *)reason;
+
+/**
+ *  Creates a new exception instance.
+ *
+ *  @param name     The name of the exception.
+ *  @param reason   The reason for the exception.
+ *  @param userInfo userInfo as used by @c NSException.
+ *                  EarlGrey doesn't use this param so it's safe to pass nil.
+ *
+ *  @return A GREYFrameworkException instance, initialized with a @c name and @c reason.
+ */
++ (instancetype)exceptionWithName:(NSString *)name
+                           reason:(nullable NSString *)reason
+                         userInfo:(nullable NSDictionary *)userInfo;
 
 @end
+
+NS_ASSUME_NONNULL_END

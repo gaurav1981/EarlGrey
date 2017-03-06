@@ -16,7 +16,7 @@
 
 #import "Additions/NSURLConnection+GREYAdditions.h"
 
-#import <objc/runtime.h>
+#include <objc/runtime.h>
 
 #import "Additions/NSObject+GREYAdditions.h"
 #import "Additions/NSURL+GREYAdditions.h"
@@ -25,7 +25,7 @@
 #import "Delegate/GREYNSURLConnectionDelegate.h"
 #import "Synchronization/GREYAppStateTracker.h"
 
-static void const *const kStateTrackerElementIDKey = &kStateTrackerElementIDKey;
+typedef void (^NSURLConnectionCompletionBlock)(NSURLResponse *, NSData *, NSError *);
 
 @implementation NSURLConnection (GREYAdditions)
 
@@ -39,6 +39,14 @@ static void const *const kStateTrackerElementIDKey = &kStateTrackerElementIDKey;
                                       withMethod:swizzledSelector];
     NSAssert(swizzleSuccess,
              @"Cannot swizzle NSURLConnection sendAsynchronousRequest:queue:completionHandler:");
+
+    originalSelector = @selector(sendSynchronousRequest:returningResponse:error:);
+    swizzledSelector = @selector(greyswizzled_sendSynchronousRequest:returningResponse:error:);
+    swizzleSuccess = [swizzler swizzleClass:self
+                         replaceClassMethod:originalSelector
+                                 withMethod:swizzledSelector];
+    NSAssert(swizzleSuccess,
+             @"Cannot swizzle NSURLConnection sendSynchronousRequest:returningResponse:error:");
 
     originalSelector = @selector(connectionWithRequest:delegate:);
     swizzledSelector = @selector(greyswizzled_connectionWithRequest:delegate:);
@@ -78,49 +86,70 @@ static void const *const kStateTrackerElementIDKey = &kStateTrackerElementIDKey;
   }
 }
 
-/**
- *  Tracks the current connection as pending in GREYAppStateTracker.
- */
+#pragma mark - Package Internal
+
 - (void)grey_trackPending {
   NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingNetworkRequest, self);
   objc_setAssociatedObject(self,
-                           kStateTrackerElementIDKey,
+                           @selector(grey_trackPending),
                            elementID,
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-/**
- *  Untracks the current connection from GREYAppStateTracker, marking it as completed.
- */
 - (void)grey_untrackPending {
-  NSString *elementID = objc_getAssociatedObject(self, kStateTrackerElementIDKey);
+  NSString *elementID = objc_getAssociatedObject(self, @selector(grey_trackPending));
   UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingNetworkRequest, elementID);
 }
 
 #pragma mark - Swizzled Implementation
 
-+ (void)greyswizzled_sendAsynchronousRequest:(NSURLRequest *)request
-                                     queue:(NSOperationQueue *)queue
-                         completionHandler:(void (^)(NSURLResponse *, NSData *, NSError *))handler {
-  __block NSString *elementID;
-  void (^customCompletion)(NSURLResponse *, NSData *, NSError *) = ^(NSURLResponse *response,
-                                                                     NSData *data,
-                                                                     NSError *error) {
-    handler(response, data, error);
-    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingNetworkRequest, elementID);
-  };
++ (NSData *)greyswizzled_sendSynchronousRequest:(NSURLRequest *)request
+                              returningResponse:(NSURLResponse **)response
+                                          error:(NSError **)error {
+  NSString *elementID;
+  NSObject *uniqueIdentifier;
+  if ([request.URL grey_shouldSynchronize] && ![NSThread isMainThread]) {
+    uniqueIdentifier = [[NSObject alloc] init];
+    elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingNetworkRequest, uniqueIdentifier);
+  }
 
+  NSData *data =
+      INVOKE_ORIGINAL_IMP3(NSData *,
+                           @selector(greyswizzled_sendSynchronousRequest:returningResponse:error:),
+                           request,
+                           response,
+                           error);
+  if (elementID) {
+    UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingNetworkRequest, elementID);
+    // Hold a reference to the unique identifier until we no longer track the connection.
+    uniqueIdentifier = nil;
+  }
+  return data;
+}
+
+
++ (void)greyswizzled_sendAsynchronousRequest:(NSURLRequest *)request
+                                       queue:(NSOperationQueue *)queue
+                           completionHandler:(NSURLConnectionCompletionBlock)handler {
+  void (^completionHandler)(NSURLResponse *, NSData *, NSError *) = handler;
   if ([request.URL grey_shouldSynchronize]) {
-    // We use customCompletion as the element as it is an identifer unique per connection,
-    // also note that the value returned by TRACK_STATE_... must be saved because it will be
-    // eventually used in |customCompletion| block to untrack.
-    elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingNetworkRequest, customCompletion);
+    // Use a unique identifier to track connection.
+    __block NSObject *uniqueIdentifier = [[NSObject alloc] init];
+    NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingNetworkRequest, uniqueIdentifier);
+    completionHandler = ^(NSURLResponse *response,
+                          NSData *data,
+                          NSError *error) {
+      handler(response, data, error);
+      UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingNetworkRequest, elementID);
+      // Hold a reference to the unique identifier until we no longer track the connection.
+      uniqueIdentifier = nil;
+    };
   }
   INVOKE_ORIGINAL_IMP3(void,
                        @selector(greyswizzled_sendAsynchronousRequest:queue:completionHandler:),
                        request,
                        queue,
-                       customCompletion);
+                       completionHandler);
 }
 
 + (NSURLConnection *)greyswizzled_connectionWithRequest:(NSURLRequest *)request

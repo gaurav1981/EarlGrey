@@ -15,13 +15,14 @@
 //
 
 #import <EarlGrey/EarlGrey.h>
-#import <EarlGrey/GREYPrivate.h>
 #import <XCTest/XCTest.h>
-
-#import "GREYExposedForTesting.h"
 
 #define OCMOCK_STRUCT(atype, variable) \
   [NSValue valueWithBytes:&variable objCType:@encode(atype)]
+
+// Failure handler for EarlGrey unit tests
+@interface GREYUTFailureHandler : NSObject<GREYFailureHandler>
+@end
 
 // Base test class for every unit test.
 // Each subclass must call through to super's implementation.

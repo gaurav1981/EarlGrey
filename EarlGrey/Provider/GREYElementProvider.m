@@ -71,7 +71,7 @@
 #pragma mark - GREYProvider
 
 - (NSEnumerator *)dataEnumerator {
-  __CHECK_MAIN_THREAD();
+  I_CHECK_MAIN_THREAD();
 
   NSEnumerator *enumerator;
   if (_rootElements) {
@@ -87,15 +87,14 @@
   return [[GREYDataEnumerator alloc] initWithUserInfo:nil block:^id(id userinfo) {
     id nextObject;
     @autoreleasepool {
-      // If there are no elements left to explore from the current set, add one from the source
+      // If there are no UI elements left to explore from the current set, add one from the source
       // enumerator.
       if (nextObjectIndex >= runningElementHierarchy.count) {
         // Keep retrieving the next element until finding one that hasn't been considered yet.
         id nextFromEnumerator;
         do {
           nextFromEnumerator = [enumerator nextObject];
-        } while(nextFromEnumerator != nil &&
-                [runningElementHierarchy containsObject:nextFromEnumerator]);
+        } while (nextFromEnumerator && [runningElementHierarchy containsObject:nextFromEnumerator]);
 
         // If no next valid element is found, the enumeration should stop.
         if (!nextFromEnumerator) {
@@ -149,8 +148,10 @@
               // Replace mock views with the views they encapsulate.
               element = [element view];
             }
-            NSAssert(element, @"element should not be nil");
-            [runningElementHierarchy addObject:element];
+            // Need to add a nil check since sometimes element is nil.
+            if (element) {
+              [runningElementHierarchy addObject:element];
+            }
           }
         }
       }

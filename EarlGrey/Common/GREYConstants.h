@@ -35,6 +35,16 @@ GREY_EXTERN const CFTimeInterval kGREYSwipeFastDuration;
 GREY_EXTERN const CFTimeInterval kGREYSwipeSlowDuration;
 
 /**
+ *  Amount of time a "fast" pinch should last for, in seconds
+ */
+GREY_EXTERN const CFTimeInterval kGREYPinchFastDuration;
+
+/**
+ *  Amount of time a "slow" pinch should last for, in seconds
+ */
+GREY_EXTERN const CFTimeInterval kGREYPinchSlowDuration;
+
+/**
  *  Infinite timeout.
  */
 GREY_EXTERN const CFTimeInterval kGREYInfiniteTimeout;
@@ -57,13 +67,41 @@ GREY_EXTERN const CFTimeInterval kGREYLongPressDefaultDuration;
 GREY_EXTERN const CGFloat kGREYAcceptableFloatDifference;
 
 /**
+ *  NSUserDefaults key for checking if verbose logging is turned on. (i.e. logs with
+ *  GREYLogVerbose are printed.)
+ */
+GREY_EXTERN NSString *const kGREYAllowVerboseLogging;
+
+/**
+ *  The default pinch angle for the pinch action, specified by an approximate angle for a right
+ *  handed two finger pinch.
+ */
+GREY_EXTERN const double kGREYPinchAngleDefault;
+
+/**
  *  Directions for scrolling and swiping.
+ *
+ *  The direction describes the motion of the view port as a result of the swipe, which is opposite
+ *  to the direction the user's finger moves. For example, a scroll down the page should be
+ *  expressed with @c kGREYDirectionDown as it simulates a touch that starts somewhere in the middle
+ *  of the screen and moves up to simulate an absolute scroll down behavior.
  */
 typedef NS_ENUM(NSInteger, GREYDirection) {
   kGREYDirectionLeft = 1,
   kGREYDirectionRight,
   kGREYDirectionUp,
   kGREYDirectionDown,
+};
+
+/**
+ *  Directions for pinch gesture.
+ *
+ *  The direction describes the motion of the view port as a result of pinch. There are two
+ *  possible directions for pinch action inward and outward.
+ */
+typedef NS_ENUM(NSInteger, GREYPinchDirection) {
+  kGREYPinchDirectionOutward = 1,
+  kGREYPinchDirectionInward,
 };
 
 /**
@@ -136,6 +174,11 @@ NSString *NSStringFromUIDeviceOrientation(UIDeviceOrientation deviceOrientation)
  *  @return A string representation of the given @c direction.
  */
 NSString *NSStringFromGREYDirection(GREYDirection direction);
+
+/**
+ *  Returns a string representation of the given @c pinchDirection.
+ */
+NSString *NSStringFromPinchDirection(GREYPinchDirection pinchDirection);
 
 /**
  *  @return A string representation of the given @c edge.

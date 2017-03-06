@@ -35,11 +35,10 @@
 
 - (NSArray *)elementsMatchedInProvider:(id<GREYProvider>)elementProvider {
   NSParameterAssert(elementProvider);
-  __CHECK_MAIN_THREAD();
-
+  I_CHECK_MAIN_THREAD();
   NSMutableArray *matchingElements = [[NSMutableArray alloc] init];
-  @autoreleasepool {
-    for (id element in [elementProvider dataEnumerator]) {
+  for (id element in [elementProvider dataEnumerator]) {
+    @autoreleasepool {
       if ([_matcher matches:element]) {
         [matchingElements addObject:element];
       }

@@ -17,7 +17,7 @@
 #import "Additions/UIWebView+GREYAdditions.h"
 
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
+#include <objc/runtime.h>
 
 #import "Common/GREYSwizzler.h"
 #import "Delegate/GREYUIWebViewDelegate.h"
@@ -25,20 +25,10 @@
 #import "Synchronization/GREYTimedIdlingResource.h"
 
 /**
- *  Key used to keep a list of all proxy delegates as someone could be holding a weak reference to
- *  it. This list gets cleaned up as soon as the UIWebView is deallocated.
+ *  Key for tracking the web view's loading state. Used to track the web view with respect to its
+ *  delegate callbacks, which is more reliable than UIWebView's isLoading method.
  */
-static void const *const kUIWebViewDelegateListKey = &kUIWebViewDelegateListKey;
-
-/**
- *  Key used to store the GREYAppStateTracker element id that is needed to untrack this object.
- */
-static void const *const kStateTrackerElementIDKey = &kStateTrackerElementIDKey;
-
-/**
- *  Key for tracking timed idling resource used for pending interaction state.
- */
-static void const *const kUIWebViewPendingInteractionKey = &kUIWebViewPendingInteractionKey;
+static void const *const kUIWebViewLoadingStateKey = &kUIWebViewLoadingStateKey;
 
 @implementation UIWebView (GREYAdditions)
 
@@ -62,21 +52,18 @@ static void const *const kUIWebViewPendingInteractionKey = &kUIWebViewPendingInt
   }
 }
 
-/**
- *  Explicitly clears the pending interaction state for UIWebViews.
- */
+#pragma mark - Package Internal
+
 - (void)grey_clearPendingInteraction {
   GREYTimedIdlingResource *timedIdlingResource =
-      objc_getAssociatedObject(self, kUIWebViewPendingInteractionKey);
+      objc_getAssociatedObject(self, @selector(grey_pendingInteractionForTime:));
   [timedIdlingResource stopMonitoring];
+  objc_setAssociatedObject(self,
+                           @selector(grey_pendingInteractionForTime:),
+                           nil,
+                           OBJC_ASSOCIATION_ASSIGN);
 }
 
-/**
- *  Will mark the UIWebView's state as busy waiting for interaction until @c seconds have elapsed or
- *  UIWebView::grey_clearPendingInteraction is called (whichever comes first).
- *
- *  @param seconds Time interval in seconds for which to mark the UIWebView as busy.
- */
 - (void)grey_pendingInteractionForTime:(NSTimeInterval)seconds {
   [self grey_clearPendingInteraction];
   NSString *resourceName =
@@ -85,28 +72,38 @@ static void const *const kUIWebViewPendingInteractionKey = &kUIWebViewPendingInt
                                                               thatIsBusyForDuration:seconds
                                                                                name:resourceName];
   objc_setAssociatedObject(self,
-                           kUIWebViewPendingInteractionKey,
+                           @selector(grey_pendingInteractionForTime:),
                            timedResource,
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-/**
- *  Marks webview as pending load in GREYAppStateTracker.
- */
 - (void)grey_trackAJAXLoading {
   NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingUIWebViewAsyncRequest, self);
   objc_setAssociatedObject(self,
-                           kStateTrackerElementIDKey,
+                           @selector(grey_trackAJAXLoading),
                            elementID,
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-/**
- *  Untracks webview loading state from GREYAppStateTracker.
- */
 - (void)grey_untrackAJAXLoading {
-  NSString *elementID = objc_getAssociatedObject(self, kStateTrackerElementIDKey);
+  NSString *elementID = objc_getAssociatedObject(self, @selector(grey_trackAJAXLoading));
   UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingUIWebViewAsyncRequest, elementID);
+  objc_setAssociatedObject(self,
+                           @selector(grey_trackAJAXLoading),
+                           nil,
+                           OBJC_ASSOCIATION_ASSIGN);
+}
+
+- (void)grey_setIsLoadingFrame:(BOOL)loading {
+  objc_setAssociatedObject(self,
+                           kUIWebViewLoadingStateKey,
+                           @(loading),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (BOOL)grey_isLoadingFrame {
+  NSNumber *loading = objc_getAssociatedObject(self, kUIWebViewLoadingStateKey);
+  return [loading boolValue];
 }
 
 #pragma mark - Swizzled Implementation
@@ -152,8 +149,8 @@ static void const *const kUIWebViewPendingInteractionKey = &kUIWebViewPendingInt
 
     // We need to keep a list of all proxy delegates as someone could be holding a weak reference to
     // it. This list will get cleaned up as soon as webview is deallocated so we might have a slight
-    // memory spike until that happens.
-    NSMutableArray *delegateList = objc_getAssociatedObject(self, kUIWebViewDelegateListKey);
+    // memory spike (as we are holding onto delegates) until then.
+    NSMutableArray *delegateList = objc_getAssociatedObject(self, @selector(greyswizzled_delegate));
     if (!delegateList) {
       delegateList = [[NSMutableArray alloc] init];
     }
@@ -161,7 +158,7 @@ static void const *const kUIWebViewPendingInteractionKey = &kUIWebViewPendingInt
     [delegateList addObject:proxyDelegate];
     // Store delegate using objc_setAssociatedObject because setDelegate method doesn't retain.
     objc_setAssociatedObject(self,
-                             kUIWebViewDelegateListKey,
+                             @selector(greyswizzled_delegate),
                              delegateList,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }

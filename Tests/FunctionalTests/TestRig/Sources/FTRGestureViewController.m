@@ -23,6 +23,7 @@
 
   self.greyBox.isAccessibilityElement = YES;
   self.greyBox.accessibilityLabel = @"Grey Box";
+  self.detectedGestureCoordinate.text = nil;
 
   // Tap gesture recognizers.
   for (NSUInteger touches = 1; touches < 5; ++touches) {
@@ -107,16 +108,11 @@
 }
 
 - (IBAction)recognizeSwipe:(UISwipeGestureRecognizer *)recognizer {
-  NSString *directionString =
-      [FTRGestureViewController stringFromSwipeDirection:recognizer.direction];
-
-  CGPoint startPoint = [recognizer locationInView:self.greyBox];
-
-  self.detectedGesture.text = [NSString stringWithFormat:@"%@swipe %@ startX:%.1f startY:%.1f",
+  self.detectedGesture.text = [NSString stringWithFormat:@"%@swipe %@",
       [FTRGestureViewController stringForFingerCount:recognizer.numberOfTouchesRequired],
-      directionString,
-      startPoint.x,
-      startPoint.y];
+      [FTRGestureViewController stringFromSwipeDirection:recognizer.direction]];
+  self.detectedGestureCoordinate.text =
+      [FTRGestureViewController stringForPoint:[recognizer locationInView:self.greyBox]];
 }
 
 - (IBAction)recognizeWindowSwipe:(UISwipeGestureRecognizer *)recognizer {
@@ -131,6 +127,9 @@
   self.detectedGesture.text = [NSString stringWithFormat:@"%@%@ tap",
       [FTRGestureViewController stringForFingerCount:recognizer.numberOfTouchesRequired],
       [FTRGestureViewController stringForRepetitionCount:recognizer.numberOfTapsRequired]];
+
+  CGPoint tapPoint = [recognizer locationInView:self.greyBox];
+  self.detectedGestureCoordinate.text = [FTRGestureViewController stringForPoint:tapPoint];
 }
 
 - (IBAction)recognizeLongPress:(UILongPressGestureRecognizer *)recognizer {
@@ -241,6 +240,10 @@
     case UISwipeGestureRecognizerDirectionDown:
       return @"down";
   }
+}
+
++ (NSString *)stringForPoint:(CGPoint)point {
+  return [NSString stringWithFormat:@"x:%.1f - y:%.1f", point.x, point.y];
 }
 
 @end

@@ -42,7 +42,7 @@
 }
 
 - (NSString *)instanceMethod3 {
-  return @"Class A Instance Method 2";
+  return @"Class A Instance Method 3";
 }
 
 + (NSString *)classMethod1 {
@@ -58,7 +58,7 @@
 }
 
 + (NSString *)classMethod4 {
-  return @"Class A Class Method 3";
+  return @"Class A Class Method 4";
 }
 
 @end
@@ -80,6 +80,10 @@
 @end
 
 @implementation GREYUTClassC
+
+- (NSString *)instanceMethod1 {
+  return @"Class C Instance Method 1";
+}
 
 @end
 
@@ -128,27 +132,32 @@
   _swizzler = [[GREYSwizzler alloc] init];
 }
 
+- (void)tearDown {
+  [_swizzler resetAll];
+  [super tearDown];
+}
+
 - (void)testSwizzleClassMethod {
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
                      replaceClassMethod:@selector(classMethod1)
                              withMethod:@selector(classMethod2)],
                 @"Swizzle should succeed");
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 2");
-  XCTAssertEqual([GREYUTClassA classMethod2], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod1], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassA classMethod2], @"Class A Class Method 1");
   // Swizzle back
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
                      replaceClassMethod:@selector(classMethod1)
                              withMethod:@selector(classMethod2)],
                 @"Swizzle should succeed");
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 1");
-  XCTAssertEqual([GREYUTClassA classMethod2], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassA classMethod1], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod2], @"Class A Class Method 2");
 }
 
 - (void)testSwizzleMethodWithNil {
   XCTAssertFalse([_swizzler swizzleClass:[GREYUTClassA class]
                       replaceClassMethod:@selector(classMethod1)
                               withMethod:nil]);
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod1], @"Class A Class Method 1");
 }
 
 - (void)testSwizzleNotFoundMethod {
@@ -156,12 +165,12 @@
   XCTAssertFalse([_swizzler swizzleClass:[GREYUTClassA class]
                       replaceClassMethod:@selector(classMethod1)
                               withMethod:NSSelectorFromString(@"fakeClassMethod")]);
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod1], @"Class A Class Method 1");
   // Swizzle instance method
   XCTAssertFalse([_swizzler swizzleClass:[GREYUTClassA class]
                      replaceInstanceMethod:@selector(instanceMethod1)
                                 withMethod:NSSelectorFromString(@"fakeMethod")]);
-  XCTAssertEqual([_objectA instanceMethod1], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 1");
 }
 
 - (void)testSwizzleInstanceMethod {
@@ -169,52 +178,49 @@
                     replaceInstanceMethod:@selector(instanceMethod1)
                                withMethod:@selector(instanceMethod2)],
                 @"Swizzle should succeed");
-  XCTAssertEqual([_objectA instanceMethod1], @"Class A Instance Method 2");
-  XCTAssertEqual([_objectA instanceMethod2], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 1");
   // Swizzle back
 
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
                     replaceInstanceMethod:@selector(instanceMethod1)
                                withMethod:@selector(instanceMethod2)],
                 @"Swizzle should succeed");
-  XCTAssertEqual([_objectA instanceMethod1], @"Class A Instance Method 1");
-  XCTAssertEqual([_objectA instanceMethod2], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
 }
 
 - (void)testResetClassMethods {
-  XCTAssertFalse([_swizzler resetClassMethod:@selector(classMethod1)
-                                      class:[GREYUTClassA class]],
+  XCTAssertFalse([_swizzler resetClassMethod:@selector(classMethod1) class:[GREYUTClassA class]],
                  @"Never swizzled. Should not reset.");
 
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
                      replaceClassMethod:@selector(classMethod1)
                              withMethod:@selector(classMethod2)],
                 @"Swizzle should succeed");
-  XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
-                     replaceClassMethod:@selector(classMethod1)
-                             withMethod:@selector(classMethod3)],
-                @"Swizzle should succeed");
 
-  // Reset method 1, method 2 and 3 remain.
+  XCTAssertTrue([_swizzler resetClassMethod:@selector(classMethod2) class:[GREYUTClassA class]]);
+  XCTAssertEqualObjects([GREYUTClassA classMethod2], @"Class A Class Method 2");
+
+  // Reset method 1, method 2 and method 3 remains the same.
   XCTAssertTrue([_swizzler resetClassMethod:@selector(classMethod1) class:[GREYUTClassA class]],
                 @"Reset should succeed");
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 1");
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 1");
-  XCTAssertEqual([GREYUTClassA classMethod3], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassA classMethod1], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod2], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassA classMethod3], @"Class A Class Method 3");
 
-  // Reset method 1, method 3 remains.
-  XCTAssertTrue([_swizzler resetClassMethod:@selector(classMethod2) class:[GREYUTClassA class]],
-                @"Reset should succeed");
-  XCTAssertEqual([GREYUTClassA classMethod2], @"Class A Class Method 2");
-  XCTAssertEqual([GREYUTClassA classMethod3], @"Class A Class Method 2");
+  // Reset method 2, should have no effect.
+  XCTAssertFalse([_swizzler resetClassMethod:@selector(classMethod2) class:[GREYUTClassA class]],
+                 @"Should not reset");
+  XCTAssertEqualObjects([GREYUTClassA classMethod2], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassA classMethod3], @"Class A Class Method 3");
 
-  XCTAssertTrue([_swizzler resetClassMethod:@selector(classMethod3) class:[GREYUTClassA class]],
-                @"Reset should succeed");
-  XCTAssertEqual([GREYUTClassA classMethod3], @"Class A Class Method 3");
+  XCTAssertFalse([_swizzler resetClassMethod:@selector(classMethod3) class:[GREYUTClassA class]],
+                 @"Reset should fail, never swizzled.");
+  XCTAssertEqualObjects([GREYUTClassA classMethod3], @"Class A Class Method 3");
 
-  XCTAssertFalse([_swizzler resetClassMethod:@selector(classMethod1)
-                                      class:[GREYUTClassA class]],
-                 @"Was reset. Should not reset now.");
+  XCTAssertFalse([_swizzler resetClassMethod:@selector(classMethod1) class:[GREYUTClassA class]],
+                 @"Was reset before. Should not reset again.");
 }
 
 - (void)testResetInstanceMethods {
@@ -223,25 +229,22 @@
                  @"Never swizzled. Should not reset.");
 
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
-                    replaceInstanceMethod:@selector(instanceMethod1)
-                               withMethod:@selector(instanceMethod2)],
+                  replaceInstanceMethod:@selector(instanceMethod1)
+                             withMethod:@selector(instanceMethod2)],
                 @"Swizzle should succeed");
 
-  // Reset method 1, method 2 should remain
+  // Reset method 1.
   XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod1)
                                          class:[GREYUTClassA class]],
                 @"Reset should success");
-  XCTAssertEqual([_objectA instanceMethod1], @"Class A Instance Method 1");
-  XCTAssertEqual([_objectA instanceMethod2], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod3], @"Class A Instance Method 3");
 
   XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod2)
                                          class:[GREYUTClassA class]],
-                @"Reset should success");
-  XCTAssertEqual([_objectA instanceMethod2], @"Class A Instance Method 2");
-}
-
--(NSString *)addedGREYUTClassAInstanceMethodCalled {
-  return @"Class A Added Instance Method called";
+                @"Reset should succeed");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
 }
 
 - (void)testNotSwizzleSuperClassMethod {
@@ -249,31 +252,31 @@
                      replaceClassMethod:@selector(classMethod1)
                              withMethod:@selector(classMethod2)],
                 @"Swizzle should succeed");
-  XCTAssertEqual([GREYUTClassB classMethod1], @"Class A Class Method 2");
-  XCTAssertEqual([GREYUTClassB classMethod2], @"Class A Class Method 1");
-  XCTAssertEqual([GREYUTClassA classMethod1], @"Class A Class Method 1");
-  XCTAssertEqual([GREYUTClassA classMethod2], @"Class A Class Method 2");
-  XCTAssertEqual([GREYUTClassC classMethod1], @"Class A Class Method 1");
-  XCTAssertEqual([GREYUTClassC classMethod2], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassB classMethod1], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassB classMethod2], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod1], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassA classMethod2], @"Class A Class Method 2");
+  XCTAssertEqualObjects([GREYUTClassC classMethod1], @"Class A Class Method 1");
+  XCTAssertEqualObjects([GREYUTClassC classMethod2], @"Class A Class Method 2");
 }
 
 - (void)testNotSwizzleSuperInstanceMethod {
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassB class]
-                    replaceInstanceMethod:@selector(instanceMethod1)
-                               withMethod:@selector(instanceMethod2)],
+                  replaceInstanceMethod:@selector(instanceMethod1)
+                             withMethod:@selector(instanceMethod2)],
                 @"Swizzle should succeed");
   GREYUTClassB *objectB = [[GREYUTClassB alloc] init];
   GREYUTClassC *objectC = [[GREYUTClassC alloc] init];
-  XCTAssertEqual([objectB instanceMethod1], @"Class A Instance Method 2");
-  XCTAssertEqual([objectB instanceMethod2], @"Class A Instance Method 1");
-  XCTAssertEqual([_objectA instanceMethod1], @"Class A Instance Method 1");
-  XCTAssertEqual([_objectA instanceMethod2], @"Class A Instance Method 2");
-  XCTAssertEqual([objectC instanceMethod1], @"Class A Instance Method 1");
-  XCTAssertEqual([objectC instanceMethod2], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([objectB instanceMethod1], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([objectB instanceMethod2], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([objectC instanceMethod1], @"Class C Instance Method 1");
+  XCTAssertEqualObjects([objectC instanceMethod2], @"Class A Instance Method 2");
 }
 
 - (void)testSwizzleGREYUTClassAfterAddingMethod {
-  SEL addSel = @selector(addedGREYUTClassAInstanceMethodCalled);
+  SEL addSel = @selector(grey_customMethodToBeAddedAsClassAInstanceMethod);
   IMP addIMP = [self methodForSelector:addSel];
   XCTAssertTrue([_swizzler swizzleClass:[GREYUTClassA class]
                                addInstanceMethod:addSel
@@ -290,9 +293,9 @@
   SEL addSel = @selector(instanceMethod2);
   IMP addIMP = [_objectA methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
   XCTAssertTrue(swizzleSucceeded, @"Swizzling should succeed");
   XCTAssertEqualObjects([_objectD classDInstanceMethod], @"Class A Instance Method 2");
   [_swizzler resetInstanceMethod:@selector(classDInstanceMethod) class:[GREYUTClassD class]];
@@ -304,9 +307,9 @@
   SEL addSel = @selector(instanceMethod3);
   IMP addIMP = [_objectD methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(instanceMethod1)];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(instanceMethod1)];
   XCTAssertFalse(swizzleSucceeded,
                 @"Swizzling failed because the replaced method is not in the swizzled class");
   XCTAssertFalse([_objectD respondsToSelector:@selector(instanceMethod3)]);
@@ -316,9 +319,9 @@
   SEL addSel = @selector(instanceMethod1);
   IMP addIMP = [_objectA methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDClassMethod)];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDClassMethod)];
   XCTAssertFalse(swizzleSucceeded,
                  @"Swizzling failed because the method being replaced is a class method");
   XCTAssertEqualObjects([GREYUTClassD classDClassMethod], @"Class D Class Method");
@@ -329,9 +332,9 @@
   SEL addSel = @selector(classMethod3);
   IMP addIMP = [GREYUTClassA methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDClassMethod)];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDClassMethod)];
   XCTAssertFalse(swizzleSucceeded, @"Swizzling failed because the methods are class methods");
   XCTAssertEqualObjects([_objectD classDInstanceMethod1], @"Class D Instance Method 1");
   XCTAssertFalse([GREYUTClassD instancesRespondToSelector:addSel]);
@@ -341,9 +344,9 @@
   SEL addSel = @selector(classDInstanceMethod1);
   IMP addIMP = [_objectD methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
   XCTAssertFalse(swizzleSucceeded, @"Selector Being Added already exists");
   XCTAssertTrue([GREYUTClassD instancesRespondToSelector:addSel]);
   XCTAssertEqualObjects([_objectD classDInstanceMethod], @"Class D Instance Method");
@@ -369,8 +372,8 @@
   SEL fakeSelector = NSSelectorFromString(@"garbageSEL");
 
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                              replaceInstanceMethod:fakeSelector
-                                         withMethod:swizzledSelector];
+                            replaceInstanceMethod:fakeSelector
+                                       withMethod:swizzledSelector];
 
   XCTAssertFalse(swizzleSucceeded,
                  @"Swizzle should Fail because the methods used are incorrect.");
@@ -380,9 +383,9 @@
 
 - (void)testSwizzleNilCheck_NilSelector {
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:nil
-                                        withImplementation:nil
-                              andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
+                                addInstanceMethod:nil
+                               withImplementation:nil
+                     andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
   XCTAssertFalse(swizzleSucceeded, @"Swizzling failed because the swizzle with method is nil");
   XCTAssertEqualObjects([_objectD classDInstanceMethod], @"Class D Instance Method");
 }
@@ -391,9 +394,9 @@
   SEL addSel = @selector(instanceMethod3);
   IMP addIMP = [_objectA methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:nil];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:nil];
   XCTAssertFalse(swizzleSucceeded, @"Swizzling failed because the replacement method is nil");
   XCTAssertFalse([GREYUTClassD instancesRespondToSelector:addSel]);
   XCTAssertEqualObjects([_objectD classDInstanceMethod], @"Class D Instance Method");
@@ -403,9 +406,9 @@
   SEL addSel = @selector(instanceMethod3);
   IMP addIMP = [_objectA methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:nil
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
   XCTAssertFalse(swizzleSucceeded, @"Swizzling failed because the class is nil");
   XCTAssertFalse([GREYUTClassD instancesRespondToSelector:addSel]);
 }
@@ -414,11 +417,12 @@
   SEL addSel = @selector(instanceMethod3);
   IMP addIMP = [GREYUTClassA methodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
-  XCTAssertFalse(swizzleSucceeded, @"Swizzling failed because the an instance method's "
-                    @"implementation is being obtained using a class method's utility");
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
+  XCTAssertFalse(swizzleSucceeded,
+                 @"Swizzling failed because the an instance method's implementation is being "
+                 @"obtained using a class method's utility");
   XCTAssertFalse([GREYUTClassD instancesRespondToSelector:addSel]);
 }
 
@@ -426,12 +430,99 @@
   SEL addSel = @selector(classMethod1);
   IMP addIMP = [GREYUTClassA instanceMethodForSelector:addSel];
   BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassD class]
-                                         addInstanceMethod:addSel
-                                        withImplementation:addIMP
-                              andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
-  XCTAssertFalse(swizzleSucceeded, @"Swizzling failed because a class method's "
-                 @"implementation is being obtained using an instance method's utility");
+                                addInstanceMethod:addSel
+                               withImplementation:addIMP
+                     andReplaceWithInstanceMethod:@selector(classDInstanceMethod)];
+  XCTAssertFalse(swizzleSucceeded,
+                 @"Swizzling failed because a class method's implementation is being obtained "
+                 @"using an instance method's utility");
   XCTAssertFalse([GREYUTClassD instancesRespondToSelector:addSel]);
+}
+
+- (void)testSwizzleSameMethodTwiceAndReset {
+  BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                            replaceInstanceMethod:@selector(instanceMethod1)
+                                       withMethod:@selector(instanceMethod2)];
+  XCTAssertTrue(swizzleSucceeded);
+  swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                       replaceInstanceMethod:@selector(instanceMethod1)
+                                  withMethod:@selector(instanceMethod3)];
+  XCTAssertTrue(swizzleSucceeded);
+  swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                       replaceInstanceMethod:@selector(instanceMethod2)
+                                  withMethod:@selector(instanceMethod3)];
+  XCTAssertTrue(swizzleSucceeded);
+
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 3");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([_objectA instanceMethod3], @"Class A Instance Method 1");
+
+  XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod2)
+                                         class:[GREYUTClassA class]]);
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 3");
+  XCTAssertEqualObjects([_objectA instanceMethod3], @"Class A Instance Method 1");
+
+  XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod3)
+                                         class:[GREYUTClassA class]]);
+  XCTAssertEqualObjects([_objectA instanceMethod3], @"Class A Instance Method 3");
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 3");
+}
+
+- (void)testSwizzleResetSwizzleAgain {
+  BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                            replaceInstanceMethod:@selector(instanceMethod1)
+                                       withMethod:@selector(instanceMethod2)];
+  XCTAssertTrue(swizzleSucceeded);
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 2");
+
+  XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod2)
+                                         class:[GREYUTClassA class]]);
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 2");
+
+  swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                       replaceInstanceMethod:@selector(instanceMethod1)
+                                  withMethod:@selector(instanceMethod2)];
+  XCTAssertTrue(swizzleSucceeded);
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+
+  XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod1)
+                                         class:[GREYUTClassA class]]);
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+
+  XCTAssertTrue([_swizzler resetInstanceMethod:@selector(instanceMethod2)
+                                         class:[GREYUTClassA class]]);
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+}
+
+- (void)testResetAll {
+  BOOL swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                            replaceInstanceMethod:@selector(instanceMethod1)
+                                       withMethod:@selector(instanceMethod2)];
+  XCTAssertTrue(swizzleSucceeded);
+  swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                       replaceInstanceMethod:@selector(instanceMethod1)
+                                  withMethod:@selector(instanceMethod3)];
+  XCTAssertTrue(swizzleSucceeded);
+  swizzleSucceeded = [_swizzler swizzleClass:[GREYUTClassA class]
+                       replaceInstanceMethod:@selector(instanceMethod2)
+                                  withMethod:@selector(instanceMethod3)];
+  XCTAssertTrue(swizzleSucceeded);
+
+  [_swizzler resetAll];
+
+  XCTAssertEqualObjects([_objectA instanceMethod1], @"Class A Instance Method 1");
+  XCTAssertEqualObjects([_objectA instanceMethod2], @"Class A Instance Method 2");
+  XCTAssertEqualObjects([_objectA instanceMethod3], @"Class A Instance Method 3");
+}
+
+#pragma mark - Custom Methods To Aid Testing
+
+- (NSString *)grey_customMethodToBeAddedAsClassAInstanceMethod {
+  return @"Class A Added Instance Method called";
 }
 
 @end

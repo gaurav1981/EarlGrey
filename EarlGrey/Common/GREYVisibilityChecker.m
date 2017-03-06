@@ -16,12 +16,13 @@
 
 #import "Common/GREYVisibilityChecker.h"
 
-#import <CoreGraphics/CGColor.h>
+#include <CoreGraphics/CoreGraphics.h>
 
 #import "Additions/CGGeometry+GREYAdditions.h"
 #import "Additions/NSObject+GREYAdditions.h"
 #import "Additions/UIView+GREYAdditions.h"
 #import "Common/GREYConstants.h"
+#import "Common/GREYLogger.h"
 #import "Common/GREYScreenshotUtil.h"
 #import "Synchronization/GREYUIThreadExecutor.h"
 
@@ -149,6 +150,9 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
     [cache setVisibleAreaPercent:percentVisible];
   }
 
+  GREYLogVerbose(@"Visibility Percent: %f for Element: %@",
+                 [percentVisible floatValue],
+                 [element grey_description]);
   return [percentVisible floatValue];
 }
 
@@ -194,7 +198,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
     // convert it to points coordinates.
     visibleAreaRect = CGRectOffset(visibleAreaRect, origin.x, origin.y);
     visibleAreaRect = CGRectPixelToPoint(visibleAreaRect);
-    if (!iOS8_OR_ABOVE()) {
+    if (!iOS8_0_OR_ABOVE()) {
       visibleAreaRect = CGRectVariableToFixedScreenCoordinates(visibleAreaRect);
     }
   }
@@ -206,7 +210,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
 + (CGPoint)visibleInteractionPointForElement:(id)element {
   if (!element) {
     // Nil elements are not considered visible for interaction.
-    return CGPointNull;
+    return GREYCGPointNull;
   }
 
   GREYVisibilityCheckerCacheEntry *cache = [self grey_cacheForElementCreateIfNonExistent:element];
@@ -218,8 +222,8 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
   UIView *view = [self grey_containingViewIfNonView:element];
   if (!view) {
     // Non-UIView elements without a container are considered NOT visible for interaction.
-    [cache setVisibleInteractionPoint:[NSValue valueWithCGPoint:CGPointNull]];
-    return CGPointNull;
+    [cache setVisibleInteractionPoint:[NSValue valueWithCGPoint:GREYCGPointNull]];
+    return GREYCGPointNull;
   }
 
   CGRect elementFrame = [element accessibilityFrame];
@@ -235,7 +239,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
                                              forView:view
                                           withinRect:elementFrame];
 
-  CGPoint interactionPointInFixedPoints = CGPointNull;
+  CGPoint interactionPointInFixedPoints = GREYCGPointNull;
 
   if (viewIntersectsScreen) {
     const CGFloat scale = [[UIScreen mainScreen] scale];
@@ -248,10 +252,10 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
     // If the element hasn't a minimum area in pixels, extra checks are unnecessary.
     const size_t elementAreaInPixels = widthInPixels * heightInPixels;
     if (elementAreaInPixels < minimumPixelsVisibleForInteraction) {
-      [cache setVisibleInteractionPoint:[NSValue valueWithCGPoint:CGPointNull]];
+      [cache setVisibleInteractionPoint:[NSValue valueWithCGPoint:GREYCGPointNull]];
       CGImageRelease(beforeImage);
       CGImageRelease(afterImage);
-      return CGPointNull;
+      return GREYCGPointNull;
     }
 
     GREYVisibilityDiffBuffer diffBuffer =
@@ -266,7 +270,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
                                  storeVisiblePixelRectInRect:&visibleRectInVariablePixels
                             andStoreComparisonResultInBuffer:&diffBuffer];
 
-    CGPoint interactionPointInVariablePixels = CGPointNull;
+    CGPoint interactionPointInVariablePixels = GREYCGPointNull;
 
     if (visiblePixelCount >= minimumPixelsVisibleForInteraction) {
       // If the activation point lies inside the screen, use it if it is visible.
@@ -274,7 +278,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
 
       if (CGRectContainsPoint([[UIScreen mainScreen] bounds], activationPoint)) {
         CGPoint activationPointInVariablePixels = activationPoint;
-        if (!iOS8_OR_ABOVE()) {
+        if (!iOS8_0_OR_ABOVE()) {
           activationPointInVariablePixels = CGPointFixedToVariable(activationPoint);
         }
         activationPointInVariablePixels = CGPointToPixel(activationPointInVariablePixels);
@@ -308,7 +312,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
       // At this point the interaction point is in variable screen coordinates, but the expected
       // output is in fixed view coordinates so it needs to be converted.
       interactionPointInFixedPoints = CGPixelToPoint(interactionPointInVariablePixels);
-      if (!iOS8_OR_ABOVE()) {
+      if (!iOS8_0_OR_ABOVE()) {
         interactionPointInFixedPoints = CGPointVariableToFixed(interactionPointInFixedPoints);
       }
       interactionPointInFixedPoints = [view.window convertPoint:interactionPointInFixedPoints
@@ -493,8 +497,9 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
   CGImageRelease(beforeImage);
   CGImageRelease(afterImage);
 
-  NSLog(@"Percent Visible: %0.1f%%", (double)(percentVisible * 100.0));
-  NSAssert(0 <= percentVisible, @"percentVisible should not be negative");
+  NSAssert(0 <= percentVisible,
+           @"percentVisible should not be negative. Current Percent: %0.1f%%",
+           (double)(percentVisible * 100.0));
 
   return percentVisible;
 }
@@ -538,14 +543,15 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
   CGRect screenBounds = [[UIScreen mainScreen] bounds];
   CGRect axFrame = [view accessibilityFrame];
   CGRect searchRectOnScreenInViewInScreenCoordinates =
-      CGRectIntersection(searchRectInScreenCoordinates,
-                         CGRectIntersection(axFrame, screenBounds));
+      CGRectIntersectionStrict(searchRectInScreenCoordinates,
+                               CGRectIntersectionStrict(axFrame, screenBounds));
   if (CGRectIsEmpty(searchRectOnScreenInViewInScreenCoordinates)) {
     return NO;
   }
 
   // Calculate the search rectangle for screenshot.
-  CGRect screenshotSearchRect_pixel = iOS8_OR_ABOVE() ? searchRectOnScreenInViewInScreenCoordinates
+  CGRect screenshotSearchRect_pixel =
+      iOS8_0_OR_ABOVE() ? searchRectOnScreenInViewInScreenCoordinates
       : CGRectFixedToVariableScreenCoordinates(searchRectOnScreenInViewInScreenCoordinates);
   screenshotSearchRect_pixel = CGRectPointToPixel(screenshotSearchRect_pixel);
   screenshotSearchRect_pixel = CGRectIntegralInside(screenshotSearchRect_pixel);
@@ -585,7 +591,7 @@ inline void GREYVisibilityDiffBufferSetVisibilityAt(GREYVisibilityDiffBuffer buf
 
   CGRect rectAfterPixelAlignment = CGRectPixelToPoint(screenshotSearchRect_pixel);
   // Offset must be in variable screen coordinates.
-  CGRect searchRectOnScreenInViewInVariableScreenCoordinates = iOS8_OR_ABOVE()
+  CGRect searchRectOnScreenInViewInVariableScreenCoordinates = iOS8_0_OR_ABOVE()
       ? searchRectOnScreenInViewInScreenCoordinates
       : CGRectFixedToVariableScreenCoordinates(searchRectOnScreenInViewInScreenCoordinates);
   CGFloat xPixelAlignmentDiff = CGRectGetMinX(rectAfterPixelAlignment) -
@@ -825,6 +831,8 @@ static inline bool grey_isColorDifferent(unsigned char rgb1[], unsigned char rgb
   int blueDiff = abs(rgb1[2] - rgb2[2]);
   return (redDiff > 0) || (greenDiff > 0) || (blueDiff > 0);
 }
+
+#pragma mark - Package Internal
 
 + (UIImage *)grey_lastActualBeforeImage {
   return gLastActualBeforeImage;

@@ -18,25 +18,45 @@
 
 #import "Additions/NSError+GREYAdditions.h"
 #import "Additions/UIApplication+GREYAdditions.h"
+#import "Additions/XCTestCase+GREYAdditions.h"
 #import "AppSupport/GREYIdlingResource.h"
 #import "Assertion/GREYAssertionDefines.h"
 #import "Common/GREYConfiguration.h"
 #import "Common/GREYConstants.h"
 #import "Common/GREYDefines.h"
+#import "Common/GREYError.h"
+#import "Common/GREYLogger.h"
+#import "Common/GREYStopwatch.h"
 #import "Synchronization/GREYAppStateTracker.h"
+#import "Synchronization/GREYAppStateTracker+Internal.h"
 #import "Synchronization/GREYDispatchQueueIdlingResource.h"
 #import "Synchronization/GREYOperationQueueIdlingResource.h"
+#import "Synchronization/GREYRunLoopSpinner.h"
 
 // Extern.
 NSString *const kGREYUIThreadExecutorErrorDomain =
     @"com.google.earlgrey.GREYUIThreadExecutorErrorDomain";
 
-// The number of times idling resources are queried for idleness to be considered "really" idle.
-// The value used here has worked in practice and has negligible impact on performance.
-static int kConsecutiveTimesIdlingResourcesMustBeIdle = 3;
+/**
+ *  The number of times idling resources are queried for idleness to be considered "really" idle.
+ *  The value used here has worked in practice and has negligible impact on performance.
+ */
+static const int kConsecutiveTimesIdlingResourcesMustBeIdle = 3;
+
+/**
+ *  The default maximum time that the main thread is allowed to sleep while the thread executor is
+ *  attempting to synchronize.
+ */
+static const CFTimeInterval kMaximumSynchronizationSleepInterval = 0.1;
+
+/**
+ *  The maximum amount of time to wait for the UI and idling resources to become idle in
+ *  grey_forcedStateTrackerCleanUp before forcefully clearing the state of GREYAppStateTracker.
+ */
+static const CFTimeInterval kDrainTimeoutSecondsBeforeForcedStateTrackerCleanup = 5;
 
 // Execution states.
-typedef NS_ENUM(NSInteger, EGExecutionState) {
+typedef NS_ENUM(NSInteger, GREYExecutionState) {
   kGREYExecutionNotStarted = -1,
   kGREYExecutionWaitingForIdle,
   kGREYExecutionCompleted,
@@ -45,27 +65,26 @@ typedef NS_ENUM(NSInteger, EGExecutionState) {
 };
 
 @interface GREYUIThreadExecutor ()
-// Property added for unit tests to skip monitoring the default idling resources.
-@property(nonatomic, assign) BOOL shouldSkipMonitoringDefaultIdlingResourcesForTesting;
+
+/**
+ *  Property added for unit tests to keep the main thread awake while synchronizing.
+ */
+@property(nonatomic, assign) BOOL forceBusyPolling;
+
 @end
 
 @implementation GREYUIThreadExecutor {
   /**
-   *  All idling resources that are registered with the framework using
-   *  EGUIThreadExecutor::registerIdlingResource:. This list excludes the idling resources that are
-   *  monitored by default and don't require registration.
+   *  All idling resources that are registered with the framework using registerIdlingResource:.
+   *  This list excludes the idling resources that are monitored by default and do not require
+   *  registration.
    */
-  NSMutableSet *_registeredIdlingResources;
-  /**
-   *  A weak collection of all (default and registered) idling resources that are in non-idle state.
-   *  It is not safe to access this outside the main thread.
-   */
-  NSHashTable *_busyIdlingResources;
+  NSMutableOrderedSet *_registeredIdlingResources;
+
   /**
    *  Idling resources that are monitored by default and cannot be deregistered.
    */
-  id<GREYIdlingResource> _defaultMainDispatchQIdlingResource;
-  id<GREYIdlingResource> _defaultMainNSOperationQIdlingResource;
+  NSOrderedSet *_defaultIdlingResources;
 }
 
 + (instancetype)sharedInstance {
@@ -86,207 +105,164 @@ typedef NS_ENUM(NSInteger, EGExecutionState) {
 - (instancetype)initOnce {
   self = [super init];
   if (self) {
-    _registeredIdlingResources = [[NSMutableSet alloc] init];
-    _busyIdlingResources = [NSHashTable weakObjectsHashTable];
-    // Create default idling resources that are always monitored.
-    _defaultMainNSOperationQIdlingResource =
+    _registeredIdlingResources = [[NSMutableOrderedSet alloc] init];
+
+    // Create the default idling resources.
+    id<GREYIdlingResource> defaultMainNSOperationQIdlingResource =
         [GREYOperationQueueIdlingResource resourceWithNSOperationQueue:[NSOperationQueue mainQueue]
                                                                   name:@"Main NSOperation Queue"];
-    _defaultMainDispatchQIdlingResource =
+    id<GREYIdlingResource> defaultMainDispatchQIdlingResource =
         [GREYDispatchQueueIdlingResource resourceWithDispatchQueue:dispatch_get_main_queue()
                                                               name:@"Main Dispatch Queue"];
+    id<GREYIdlingResource> appStateTrackerIdlingResource = [GREYAppStateTracker sharedInstance];
+
+    // The default resources' order is important as it affects the order in which the resources
+    // will be checked.
+    _defaultIdlingResources =
+        [[NSOrderedSet alloc] initWithObjects:appStateTrackerIdlingResource,
+                                              defaultMainDispatchQIdlingResource,
+                                              defaultMainNSOperationQIdlingResource, nil];
+    // Forcefully clear GREYAppStateTracker state during test case teardown if it is not idle.
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(grey_forcedStateTrackerCleanUp)
+                                                 name:kGREYXCTestCaseInstanceDidTearDown
+                                               object:nil];
   }
   return self;
 }
 
 - (void)drainOnce {
-  @autoreleasepool {
-    NSError *ignoreError;
-    [self executeSyncWithTimeout:0 block:nil error:&ignoreError];
-  }
+  // Drain the active run loop once. Do not allow the run loop to sleep.
+  GREYRunLoopSpinner *runLoopSpinner = [[GREYRunLoopSpinner alloc] init];
+
+  // Spin the run loop with an always true stop condition. The spinner will only drain the run loop
+  // for its minimum number of drains before checking this condition and returning.
+  [runLoopSpinner spinWithStopConditionBlock:^BOOL {
+    return YES;
+  }];
 }
 
 - (void)drainForTime:(CFTimeInterval)seconds {
   NSParameterAssert(seconds >= 0);
+  GREYLogVerbose(@"Active Run Loop being drained for %f seconds.", seconds);
+  GREYStopwatch *stopwatch = [[GREYStopwatch alloc] init];
+  [stopwatch start];
+  // Drain the active run loop for @c seconds. Allow the run loop to sleep.
+  GREYRunLoopSpinner *runLoopSpinner = [[GREYRunLoopSpinner alloc] init];
 
-  @autoreleasepool {
-    CFTimeInterval drainUntilTime = CACurrentMediaTime() + seconds;
-    CFTimeInterval currentTime;
-    do {
-      [self drainOnce];
-      currentTime = CACurrentMediaTime();
-    } while (currentTime < drainUntilTime);
-  }
+  runLoopSpinner.timeout = seconds;
+  runLoopSpinner.maxSleepInterval = DBL_MAX;
+  runLoopSpinner.minRunLoopDrains = 0;
+
+  // Spin the run loop with an always NO stop condition. The run loop spinner will only return after
+  // it times out.
+  [runLoopSpinner spinWithStopConditionBlock:^BOOL{
+    return NO;
+  }];
+  [stopwatch stop];
+  GREYLogVerbose(@"Active Run Loop was drained for %f seconds", [stopwatch elapsedTime]);
 }
 
 - (void)drainUntilIdle {
+  GREYLogVerbose(@"Active Run Loop being drained for an infinite timeout until the app is Idle.");
+  GREYStopwatch *stopwatch = [[GREYStopwatch alloc] init];
+  [stopwatch start];
   [self executeSyncWithTimeout:kGREYInfiniteTimeout block:nil error:nil];
+  [stopwatch stop];
+  GREYLogVerbose(@"App became idle after %f seconds", [stopwatch elapsedTime]);
 }
 
 - (BOOL)drainUntilIdleWithTimeout:(CFTimeInterval)seconds {
   NSError *ignoreError;
-  return [self executeSyncWithTimeout:seconds block:nil error:&ignoreError];
+  GREYLogVerbose(@"Active Run Loop being drained for an %f seconds until the app is Idle.",
+                 seconds);
+  GREYStopwatch *stopwatch = [[GREYStopwatch alloc] init];
+  [stopwatch start];
+  BOOL success = [self executeSyncWithTimeout:seconds block:nil error:&ignoreError];
+  [stopwatch stop];
+  if (success) {
+    GREYLogVerbose(@"App became idle after %f seconds", [stopwatch elapsedTime]);
+  } else {
+    GREYLogVerbose(@"Run loop drain timed out after %f seconds", [stopwatch elapsedTime]);
+  }
+  return success;
 }
 
 - (BOOL)executeSync:(GREYExecBlock)execBlock error:(__strong NSError **)error {
+  GREYLogVerbose(@"Execution block: %@ is being synchronized and executed on the main thread.",
+                 execBlock);
   return [self executeSyncWithTimeout:kGREYInfiniteTimeout block:execBlock error:error];
 }
 
 - (BOOL)executeSyncWithTimeout:(CFTimeInterval)seconds
                          block:(GREYExecBlock)execBlock
                          error:(__strong NSError **)error {
-  __CHECK_MAIN_THREAD();
+  I_CHECK_MAIN_THREAD();
   NSParameterAssert(seconds >= 0);
 
-  __block BOOL areAllResourcesIdle = NO;
-  __block BOOL isAppIdle = NO;
-  // Calculate timeout.
-  CFTimeInterval timeoutTime = CACurrentMediaTime() + seconds;
-  BOOL timedOut = NO;
-  BOOL isSynchronizationDisabled = !GREY_CONFIG_BOOL(kGREYConfigKeySynchronizationEnabled);
-  __block EGExecutionState executionState = kGREYExecutionNotStarted;
-  // Loop until block is executed or a timeout occurs.
-  do {
+  BOOL isSynchronizationEnabled = GREY_CONFIG_BOOL(kGREYConfigKeySynchronizationEnabled);
+  GREYRunLoopSpinner *runLoopSpinner = [[GREYRunLoopSpinner alloc] init];
+  // It is important that we execute @c execBlock in the active run loop mode, which is guaranteed
+  // by the run loop spinner's condition met handler. We want actions and other events to execute
+  // in the mode that they would without EarlGrey's run loop control.
+  runLoopSpinner.conditionMetHandler = ^{
     @autoreleasepool {
-      // Drain the runloop before evaluating states because a pending state change might take
-      // effect only after a drain.
-      [self grey_drainInActiveRunLoopMode];
-
-      CFStringRef mode = (__bridge CFStringRef)[self grey_activeRunLoopMode];
-      // Use CFRunLoopPerformBlock to enqueue the block because:
-      // 1) We want to run the block in the topmost active runloop mode because that's what the
-      //    the app does when run standalone.
-      // 2) We synchronize with dispatch queues and using any dispatch queue APIs for executing
-      //    the block will leads to livelock.
-      // 3) According to CFRunLoop's implementation, perform blocks are executed at a much higher
-      //    rate than any other sources. This minimizes the time-gap between checking for idleness
-      //    and actual execution of the block.
-      CFRunLoopPerformBlock(CFRunLoopGetCurrent(), mode, ^{
-        BOOL shouldExecuteBlock;
-        if (isSynchronizationDisabled) {
-          shouldExecuteBlock = YES;
-        } else {
-          // Ensure idleness consecutively. This is a sloppy way to mitigate flakiness that may be
-          // caused by idling resource affecting each other's state when they're queried for
-          // idleness.
-          for (int i = 0; i < kConsecutiveTimesIdlingResourcesMustBeIdle; i++) {
-            areAllResourcesIdle = [self grey_areAllResourcesIdle];
-            if (!areAllResourcesIdle) {
-              break;
-            }
-          }
-          isAppIdle = [[GREYAppStateTracker sharedInstance] isIdle];
-          shouldExecuteBlock = (areAllResourcesIdle && isAppIdle);
-        }
-
-        executionState = kGREYExecutionWaitingForIdle;
-        if (shouldExecuteBlock) {
-          if (execBlock) {
-            execBlock();
-          }
-          executionState = kGREYExecutionCompleted;
-        }
-      });
-      // Drain the runloop run long enough to execute the block.
-      CFRunLoopRunInMode(mode, 0, true);
-      NSAssert((executionState == kGREYExecutionCompleted) ||
-               (executionState == kGREYExecutionWaitingForIdle),
-               @"Execution not complete after draining the runloop once.");
-
-      CFTimeInterval currentTime = CACurrentMediaTime();
-      timedOut = (seconds != kGREYInfiniteTimeout) && (currentTime >= timeoutTime);
-      if ((executionState != kGREYExecutionCompleted) && timedOut) {
-        // TODO: This doesn't take into account possibilities of both idling resources and app
-        // not being in idle state. When this happens, either one of the two is reported to the user
-        // not both.
-        if (!areAllResourcesIdle) {
-          executionState = kGREYExecutionTimeoutIdlingResourcesAreBusy;
-        } else if (!isAppIdle) {
-          executionState = kGREYExecutionTimeoutAppIsBusy;
-        } else {
-          NSAssert(NO, @"Should not timeout if both the App and the idling resources are idle.");
-        }
+      if (execBlock) {
+        execBlock();
       }
     }
-  } while (executionState == kGREYExecutionWaitingForIdle);
+  };
 
-  switch (executionState) {
-    case kGREYExecutionTimeoutAppIsBusy: {
-      NSString *reason = @"Failed to execute block because App is not idle. "
-                         @"Perhaps an animation or network request is ongoing for an "
-                         @"indefinite period of time?";
-      NSString *details =
-          [NSString stringWithFormat:@"Waiting for terminal events for following App states:\n%@",
-                                     [[GREYAppStateTracker sharedInstance] description]];
-      [NSError grey_logOrSetOutReferenceIfNonNil:error
-                                      withDomain:kGREYUIThreadExecutorErrorDomain
-                                            code:kGREYUIThreadExecutorTimeoutErrorCode
-                            andDescriptionFormat:@"%@\n%@", reason, details];
-      return NO;
+  if (isSynchronizationEnabled) {
+    runLoopSpinner.timeout = seconds;
+    if (self.forceBusyPolling) {
+      runLoopSpinner.maxSleepInterval = kMaximumSynchronizationSleepInterval;
     }
-    case kGREYExecutionTimeoutIdlingResourcesAreBusy: {
-      NSMutableArray *busyResourcesNames = [[NSMutableArray alloc] init];
-      NSMutableArray *busyResourcesDescription = [[NSMutableArray alloc] init];
 
-      for (id<GREYIdlingResource> resource in _busyIdlingResources) {
-        NSString *formattedResourceName =
-            [NSString stringWithFormat:@"\'%@\'", [resource idlingResourceName]];
-        [busyResourcesNames addObject:formattedResourceName];
+    // Spin the run loop until the all of the resources are idle or until @c seconds.
+    BOOL isAppIdle = [runLoopSpinner spinWithStopConditionBlock:^BOOL {
+      return [self grey_areAllResourcesIdle];
+    }];
 
-        NSString *busyResourceDescription =
-            [NSString stringWithFormat:@"  %@ : %@",
-                                       [resource idlingResourceName],
-                                       [resource idlingResourceDescription]];
-        [busyResourcesDescription addObject:busyResourceDescription];
+    if (!isAppIdle) {
+      NSOrderedSet *busyResources = [self grey_busyResources];
+      if ([busyResources count] > 0) {
+        NSString *description = @"Failed to execute block because idling resources below are busy.";
+        GREYPopulateErrorNotedOrLog(error,
+                                    kGREYUIThreadExecutorErrorDomain,
+                                    kGREYUIThreadExecutorTimeoutErrorCode,
+                                    description,
+                                    [self grey_errorDictionaryForBusyResources:busyResources]);
+      } else {
+        GREYPopulateErrorOrLog(error,
+                               kGREYUIThreadExecutorErrorDomain,
+                               kGREYUIThreadExecutorTimeoutErrorCode,
+                               @"Failed to idle but all resources are idle after timeout.");
       }
-
-      NSString *reason =
-          [NSString stringWithFormat:@"Failed to execute block because the following "
-                                     @"IdlingResources are busy: [%@]",
-                                     [busyResourcesNames componentsJoinedByString:@", "]];
-      NSString *details =
-          [NSString stringWithFormat:@"Busy resource description:\n%@",
-                                     [busyResourcesDescription componentsJoinedByString:@",\n"]];
-      [NSError grey_logOrSetOutReferenceIfNonNil:error
-                                      withDomain:kGREYUIThreadExecutorErrorDomain
-                                            code:kGREYUIThreadExecutorTimeoutErrorCode
-                            andDescriptionFormat:@"%@\n%@", reason, details];
-      return NO;
     }
-    case kGREYExecutionCompleted: {
+    return isAppIdle;
+  } else {
+    // Spin the run loop with an always true stop condition. The spinner will only drain the run
+    // loop for its minimum number of drains before executing the conditionMetHandler in the active
+    // mode and returning.
+    [runLoopSpinner spinWithStopConditionBlock:^BOOL{
       return YES;
-    }
-    case kGREYExecutionNotStarted:
-      // fall-through.
-    case kGREYExecutionWaitingForIdle: {
-      NSAssert(NO, @"Execution must be in a terminal state. "
-                   @"Did the do-while loop exit for some other reason while execution "
-                   @"was still pending or not-started?\nisAppIdle:%d\nallResourcesIdle:%d",
-                   isAppIdle, areAllResourcesIdle);
-      return NO;
-    }
+    }];
+    return YES;
   }
 }
 
-/**
- *  Register the specified @c resource to be checked for idling before executing test actions.
- *  A strong reference is held to @c resource until it is deregistered using
- *  @c deregisterIdlingResource. It is safe to call this from any thread.
- *
- *  @param resource The idling resource to register.
- */
+#pragma mark - Package Internal
+
 - (void)registerIdlingResource:(id<GREYIdlingResource>)resource {
   NSParameterAssert(resource);
   @synchronized(_registeredIdlingResources) {
-    [_registeredIdlingResources addObject:resource];
+    // Add the object at the beginning of the ordered set. Resource checking order is important for
+    // stability and the default resources should be checked last.
+    [_registeredIdlingResources insertObject:resource atIndex:0];
   }
 }
 
-/**
- *  Unregisters a previously registered @c resource. It is safe to call this from any thread.
- *
- *  @param resource The resource to unregistered.
- */
 - (void)deregisterIdlingResource:(id<GREYIdlingResource>)resource {
   NSParameterAssert(resource);
   @synchronized(_registeredIdlingResources) {
@@ -295,145 +271,109 @@ typedef NS_ENUM(NSInteger, EGExecutionState) {
 }
 
 #pragma mark - Internal Methods Exposed For Testing
-/**
- *  @return @c YES when all idling resources are idle, @c NO otherwise.
- */
-- (BOOL)grey_areAllResourcesIdle {
-  __CHECK_MAIN_THREAD();
-  [self grey_updateBusyResources];
-  return (0 == [_busyIdlingResources count]);
-}
 
 /**
- *  @returns Active mode for the main runloop.
+ *  @return @c YES when all idling resources are idle, @c NO otherwise.
+ *
+ *  @remark More efficient than calling grey_busyResources.
  */
-- (NSString *)grey_activeRunLoopMode {
-  NSString *activeRunLoopMode = [[UIApplication sharedApplication] grey_activeRunLoopMode];
-  if (!activeRunLoopMode) {
-    activeRunLoopMode = [[NSRunLoop currentRunLoop] currentMode];
-  }
-  return activeRunLoopMode;
+- (BOOL)grey_areAllResourcesIdle {
+  return [[self grey_busyResourcesReturnEarly:YES] count] == 0;
 }
 
 #pragma mark - Methods Only For Testing
 
-- (void)grey_deregisterAllIdlingResources {
+/**
+ *  Deregisters all non-default idling resources from the thread executor.
+ */
+- (void)grey_resetIdlingResources {
   @synchronized(_registeredIdlingResources) {
-    [_registeredIdlingResources removeAllObjects];
+    _registeredIdlingResources = [[NSMutableOrderedSet alloc] init];
+  }
+}
+
+/**
+ *  @return @c YES if the thread executor is currently tracking @c idlingResource, @c NO otherwise.
+ */
+- (BOOL)grey_isTrackingIdlingResource:(id<GREYIdlingResource>)idlingResource {
+  @synchronized (_registeredIdlingResources) {
+    return [_registeredIdlingResources containsObject:idlingResource] ||
+        [_defaultIdlingResources containsObject:idlingResource];
   }
 }
 
 #pragma mark - Private
 
 /**
- *  Updates the internal idle cache with state of all idling resources.
+ *  @return An ordered set the registered and default idling resources that are currently busy.
  */
-- (void)grey_updateBusyResources {
-  [_busyIdlingResources removeAllObjects];
+- (NSOrderedSet *)grey_busyResources {
+  return [self grey_busyResourcesReturnEarly:NO];
+}
 
-  // Calling isIdleNow on one idling resource could affect the state of another idling resource.
-  // We can't prevent that but we can mitigate some false-positives by checking the default idling
-  // resources last, especially the dispatch queue because it is very likely for a previously
-  // checked idling resource to add a task to the dispatch queue.
+/**
+ *  @param returnEarly A boolean flag to determine if this method should return
+ *                     immediately after finding one busy resource.
+ *
+ *  @return An ordered set the registered and default idling resources that are currently busy.
+ */
+- (NSOrderedSet *)grey_busyResourcesReturnEarly:(BOOL)returnEarly {
   @synchronized(_registeredIdlingResources) {
-    // Resources are free to remove themselves or each-other when isIdleNow is invoked. For that
-    // reason, iterator over a copy.
-    for (id<GREYIdlingResource> resource in [_registeredIdlingResources copy]) {
-      if (![resource isIdleNow]) {
-        [_busyIdlingResources addObject:resource];
+    NSMutableOrderedSet *busyResources = [[NSMutableOrderedSet alloc] init];
+    // Loop over all of the idling resources three times. isIdleNow calls may trigger the state
+    // of other idling resources.
+    for (int i = 0; i < kConsecutiveTimesIdlingResourcesMustBeIdle; ++i) {
+      // Registered resources are free to remove themselves or each-other when isIdleNow is
+      // invoked. For that reason, iterate over a copy.
+      for (id<GREYIdlingResource> resource in [_registeredIdlingResources copy]) {
+        if (![resource isIdleNow]) {
+          [busyResources addObject:resource];
+          if (returnEarly) {
+            return busyResources;
+          }
+        }
+      }
+      for (id<GREYIdlingResource> resource in _defaultIdlingResources) {
+        if (![resource isIdleNow]) {
+          [busyResources addObject:resource];
+          if (returnEarly) {
+            return busyResources;
+          }
+        }
       }
     }
-  }
-  if (self.shouldSkipMonitoringDefaultIdlingResourcesForTesting) {
-    return;
-  }
-  if (![_defaultMainNSOperationQIdlingResource isIdleNow]) {
-    [_busyIdlingResources addObject:_defaultMainNSOperationQIdlingResource];
-  }
-  // Check the main dispatch queue last.
-  if (![_defaultMainDispatchQIdlingResource isIdleNow]) {
-    [_busyIdlingResources addObject:_defaultMainDispatchQIdlingResource];
+    return busyResources;
   }
 }
 
 /**
- *  Spins the main runloop in top-most active runloop mode until all sources have had a fair chance
- *  of service.
+ *  @return An error description string for all of the resources in @c busyResources.
  */
-- (void)grey_drainInActiveRunLoopMode {
-  @autoreleasepool {
-    CFRunLoopSourceContext context;
-    memset(&context, 0, sizeof(context));
-    context.info = NULL;
-    context.perform = grey_performSource0;
-    CFRunLoopSourceRef source = CFRunLoopSourceCreate(NULL, 0, &context);
-    CFStringRef mode = CFBridgingRetain([self grey_activeRunLoopMode]);
-    CFRunLoopAddSource(CFRunLoopGetMain(), source, mode);
+- (NSDictionary *)grey_errorDictionaryForBusyResources:(NSOrderedSet *)busyResources {
+  NSMutableDictionary *busyResourcesNameToDesc = [[NSMutableDictionary alloc] init];
 
-    __block int numCurrentRunLoopPasses = 0;
-    __block int numNestedRunLoops = 0;
-    void (^observerBlock) (CFRunLoopObserverRef observer, CFRunLoopActivity activity) =
-        ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
-          if (activity & kCFRunLoopEntry) {
-            numNestedRunLoops++;
-          } else if (activity & kCFRunLoopExit) {
-            // This will be triggered after any (including nested) CFRunLoopRun call terminates.
-            // Don't process the logic to increment numCurrentRunLoopPasses because it could
-            // lead to abruptly stopping the runloop before it completes a full 2nd pass yet.
-            numNestedRunLoops--;
-            return;
-          }
-
-          // A nested call to CFRunLoopRun will cause multiple entries. Because we should only
-          // stop the CFRunLoopRun call we make, we add this check to prevent stopping nested
-          // CFRunLoopRun calls.
-          if (numNestedRunLoops > 1) {
-            return;
-          }
-
-          NSAssert(numNestedRunLoops >= 0,
-                   @"entry/exit unbalanced. More exits than entries shouldn't be possible!");
-
-          numCurrentRunLoopPasses++;
-          NSAssert(numCurrentRunLoopPasses <= 2,
-                   @"Current runloop should have been stopped on the 2nd pass!");
-          // Keep the runloop from going to deep-sleep. This keeps it awake even if there are
-          // no active sources for the runloop to process. Otherwise, runloop will sleep until
-          // one of the sources is ready to fire.
-          CFRunLoopSourceSignal(source);
-          CFRunLoopWakeUp(CFRunLoopGetMain());
-          // Stop the current runloop on the second pass.
-          if (numCurrentRunLoopPasses == 2) {
-            CFRunLoopStop(CFRunLoopGetMain());
-          }
-        };
-
-    CFOptionFlags observerFlags = kCFRunLoopEntry | kCFRunLoopExit | kCFRunLoopBeforeWaiting;
-    CFRunLoopObserverRef observer =
-        CFRunLoopObserverCreateWithHandler(NULL, observerFlags, true, 0, observerBlock);
-    CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode);
-
-    // This runloop will exit on the second pass after all the sources and ports have had a fair
-    // chance of service.
-    //
-    // NOTE: Some runloop observers like the gesture recognizers are called
-    // in kCFRunLoopBeforeWaiting state, in order to trigger the callback we have to drain for an
-    // amount > 0. See http://www.opensource.apple.com/source/CF/CF-1151.16/CFRunLoop.c
-    //
-    // TODO: If any source triggers a call into executeSync: when it is signalled, this could go
-    // into an infinite recursion. Add some safeguard for that.
-    CFRunLoopRunInMode(mode, DBL_MAX, false);
-    CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, mode);
-    CFRelease(observer);
-    CFRunLoopRemoveSource(CFRunLoopGetMain(), source, mode);
-    CFRelease(source);
-    CFRelease(mode);
+  for (id<GREYIdlingResource> resource in busyResources) {
+    busyResourcesNameToDesc[resource.idlingResourceName] = [resource idlingResourceDescription];
   }
+  return busyResourcesNameToDesc;
 }
 
-void grey_performSource0(void *info);
-void grey_performSource0(void *info) {
-  // No-op source 0 that is triggered by runloop drain.
+/**
+ *  Drains the UI thread and waits for both the UI and idling resources to idle, for up to
+ *  @c kDrainTimeoutSecondsBeforeForcedStateTrackerCleanup seconds, before forcefully clearing
+ *  the state of GREYAppStateTracker.
+ */
+- (void)grey_forcedStateTrackerCleanUp {
+  BOOL idled = [self drainUntilIdleWithTimeout:kDrainTimeoutSecondsBeforeForcedStateTrackerCleanup];
+  if (!idled) {
+    NSLog(@"EarlGrey tried waiting for %.1f seconds for the application to reach an idle state. It"
+          @" is now forced to clear the state of GREYAppStateTracker, because the test might have"
+          @" caused the application to remain in non-idle state indefinitely."
+          @"\nFull state tracker description: %@",
+          kDrainTimeoutSecondsBeforeForcedStateTrackerCleanup,
+          [GREYAppStateTracker sharedInstance]);
+    [[GREYAppStateTracker sharedInstance] grey_clearState];
+  }
 }
 
 @end

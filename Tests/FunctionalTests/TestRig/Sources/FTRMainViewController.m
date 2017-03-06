@@ -24,6 +24,7 @@
 #import "FTRBasicViewController.h"
 #import "FTRCollectionViewController.h"
 #import "FTRGestureViewController.h"
+#import "FTRImageViewController.h"
 #import "FTRNetworkTestViewController.h"
 #import "FTRPickerViewController.h"
 #import "FTRPresentedViewController.h"
@@ -61,8 +62,8 @@ static NSString *gTableViewIdentifier = @"TableViewIdentifier";
       @"Basic Views" : [FTRBasicViewController class],
       @"Collection Views": [FTRCollectionViewController class],
       @"Gesture Tests" : [FTRGestureViewController class],
+      @"Pinch Tests" : [FTRImageViewController class],
       @"Network Test" : [FTRNetworkTestViewController class],
-      @"Notifications" : [NSNull null],
       @"Picker Views" : [FTRPickerViewController class],
       @"Presented Views" : [FTRPresentedViewController class],
       @"Rotated Views" : [FTRRotatedViewsViewController class],
@@ -90,6 +91,15 @@ static NSString *gTableViewIdentifier = @"TableViewIdentifier";
 
   // Making the nav bar not translucent so it won't cover UI elements.
   [self.navigationController.navigationBar setTranslucent:NO];
+}
+
+// If we find that the orientation of the device / simulator is not
+// UIDeviceOrientationPortrait, then for testing purposes, we rotate
+// it to UIDeviceOrientationPortrait. However, the simulator itself
+// tries to correct the orientation since we support all orientations
+// in our test app. This removes the automated orientation correction.
+- (BOOL)shouldAutorotate {
+  return NO;
 }
 
 #pragma mark - UITableViewDataSource

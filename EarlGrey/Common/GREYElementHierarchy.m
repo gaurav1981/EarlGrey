@@ -18,6 +18,7 @@
 
 #import "Additions/NSObject+GREYAdditions.h"
 #import "Common/GREYConstants.h"
+#import "Provider/GREYUIWindowProvider.h"
 
 @implementation GREYElementHierarchy
 
@@ -36,7 +37,19 @@
            andAnnotationDictionary:annotationDictionary];
 }
 
-#pragma mark - Private Methods
++ (NSString *)hierarchyStringForAllUIWindows {
+  NSMutableString *log = [[NSMutableString alloc] init];
+  long unsigned index = 0;
+  for (UIWindow *window in [GREYUIWindowProvider allWindows]) {
+    index++;
+    [log appendFormat:@"========== Window %lu ==========\n\n%@\n\n",
+                      index,
+                      [GREYElementHierarchy hierarchyStringForElement:window]];
+  }
+  return log;
+}
+
+#pragma mark - Private
 
 /**
  *  Recursively prints the hierarchy from the given UI @c element along with any annotations in
@@ -134,7 +147,10 @@
 
     for (NSInteger elementIndex = 0; elementIndex < aXElementCount; elementIndex++) {
       id accessibilityElement = [element accessibilityElementAtIndex:elementIndex];
-      [subViewSet addObject:accessibilityElement];
+      // Need to add a nil check since sometimes accessibilityElement is nil.
+      if (accessibilityElement) {
+        [subViewSet addObject:accessibilityElement];
+      }
     }
   }
   return [subViewSet array];

@@ -21,16 +21,14 @@
 
 @implementation FTRAnalyticsTest
 
-- (void)testAnalyticsIsEnabled {
-  // Verify that analytics is enabled by default.
-  XCTAssertTrue(GREY_CONFIG_BOOL(kGREYConfigKeyAnalyticsEnabled));
-}
+- (void)testMethodWithEarlGreyUsage {
+  [FTRBaseAnalyticsTest setExpectedAnalyticsRequestsCount:1];
 
-+ (void)tearDown {
-  // The instance tear down method must have been invoked by now and since analytics is enabled, a
-  // single analytics request must have been sent out.
-  [self assertCapturedAnalyticsRequestsCount:1];
-  [super tearDown];
+  // Verify that analytics is enabled.
+  GREYAssertTrue(GREY_CONFIG_BOOL(kGREYConfigKeyAnalyticsEnabled), @"should be true");
+
+  // Invoke trivial EarlGrey statement to trigger analytics.
+  [[EarlGrey selectElementWithMatcher:grey_keyWindow()] assertWithMatcher:grey_notNil()];
 }
 
 @end

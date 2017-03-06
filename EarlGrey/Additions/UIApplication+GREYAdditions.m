@@ -16,13 +16,11 @@
 
 #import "Additions/UIApplication+GREYAdditions.h"
 
-#import <objc/runtime.h>
+#include <objc/runtime.h>
 
 #import "Common/GREYExposed.h"
 #import "Common/GREYSwizzler.h"
 #import "Synchronization/GREYAppStateTracker.h"
-
-static void const *const kStateTrackerElementIDKey = &kStateTrackerElementIDKey;
 
 /**
  *  List for all the runloop modes that have been pushed and unpopped using UIApplication's push/pop
@@ -73,13 +71,13 @@ static NSMutableArray *gRunLoopModes;
   }
 }
 
-# pragma mark - Swizzled Implementation
+#pragma mark - Swizzled Implementation
 
 - (void)greyswizzled_beginIgnoringInteractionEvents {
   INVOKE_ORIGINAL_IMP(void, @selector(greyswizzled_beginIgnoringInteractionEvents));
   NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYIgnoringSystemWideUserInteraction, self);
   objc_setAssociatedObject(self,
-                           kStateTrackerElementIDKey,
+                           @selector(greyswizzled_beginIgnoringInteractionEvents),
                            elementID,
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -88,8 +86,13 @@ static NSMutableArray *gRunLoopModes;
   INVOKE_ORIGINAL_IMP(void, @selector(greyswizzled_endIgnoringInteractionEvents));
   // begin/end can be nested, instead of keeping the count, simply use isIgnoringInteractionEvents.
   if (!self.isIgnoringInteractionEvents) {
-    NSString *elementID = objc_getAssociatedObject(self, kStateTrackerElementIDKey);
+    NSString *elementID =
+        objc_getAssociatedObject(self, @selector(greyswizzled_beginIgnoringInteractionEvents));
     UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYIgnoringSystemWideUserInteraction, elementID);
+    objc_setAssociatedObject(self,
+                             @selector(greyswizzled_beginIgnoringInteractionEvents),
+                             nil,
+                             OBJC_ASSOCIATION_ASSIGN);
   }
 }
 
@@ -113,7 +116,7 @@ static NSMutableArray *gRunLoopModes;
   INVOKE_ORIGINAL_IMP2(void, @selector(greyswizzled_popRunLoopMode:requester:), mode, requester);
 }
 
-#pragma mark - Private Methods
+#pragma mark - Private
 
 - (void)grey_pushRunLoopMode:(NSString *)mode {
   @synchronized(gRunLoopModes) {

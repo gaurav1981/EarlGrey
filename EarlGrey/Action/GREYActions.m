@@ -20,6 +20,7 @@
 #import "Action/GREYActionBlock.h"
 #import "Action/GREYChangeStepperAction.h"
 #import "Action/GREYPickerAction.h"
+#import "Action/GREYPinchAction.h"
 #import "Action/GREYScrollAction.h"
 #import "Action/GREYScrollToContentEdgeAction.h"
 #import "Action/GREYSlideAction.h"
@@ -30,6 +31,7 @@
 #import "Additions/NSString+GREYAdditions.h"
 #import "Additions/UISwitch+GREYAdditions.h"
 #import "Assertion/GREYAssertionDefines.h"
+#import "Common/GREYError.h"
 #import "Common/GREYExposed.h"
 #import "Common/GREYScreenshotUtil.h"
 #import "Core/GREYInteraction.h"
@@ -70,6 +72,20 @@
                                                                 yOriginStartPercentage)];
 }
 
++ (id<GREYAction>)actionForPinchFastInDirection:(GREYPinchDirection)pinchDirection
+                                      withAngle:(double)angle {
+  return [[GREYPinchAction alloc] initWithDirection:pinchDirection
+                                           duration:kGREYPinchFastDuration
+                                         pinchAngle:angle];
+}
+
++ (id<GREYAction>)actionForPinchSlowInDirection:(GREYPinchDirection)pinchDirection
+                                      withAngle:(double)angle {
+  return [[GREYPinchAction alloc] initWithDirection:pinchDirection
+                                           duration:kGREYPinchSlowDuration
+                                         pinchAngle:angle];
+}
+
 + (id<GREYAction>)actionForMoveSliderToValue:(float)value {
   return [[GREYSlideAction alloc] initWithSliderValue:value];
 }
@@ -102,13 +118,37 @@
   return [[GREYTapAction alloc] initWithType:kGREYTapTypeMultiple numberOfTaps:count];
 }
 
++ (id<GREYAction>)actionForMultipleTapsWithCount:(NSUInteger)count atPoint:(CGPoint)point {
+  return [[GREYTapAction alloc] initWithType:kGREYTapTypeMultiple
+                                numberOfTaps:count
+                                    location:point];
+}
+
 // The |amount| is in points
 + (id<GREYAction>)actionForScrollInDirection:(GREYDirection)direction amount:(CGFloat)amount {
   return [[GREYScrollAction alloc] initWithDirection:direction amount:amount];
 }
 
++ (id<GREYAction>)actionForScrollInDirection:(GREYDirection)direction
+                                      amount:(CGFloat)amount
+                      xOriginStartPercentage:(CGFloat)xOriginStartPercentage
+                      yOriginStartPercentage:(CGFloat)yOriginStartPercentage {
+  return [[GREYScrollAction alloc] initWithDirection:direction
+                                              amount:amount
+                                  startPointPercents:CGPointMake(xOriginStartPercentage,
+                                                                 yOriginStartPercentage)];
+}
+
 + (id<GREYAction>)actionForScrollToContentEdge:(GREYContentEdge)edge {
   return [[GREYScrollToContentEdgeAction alloc] initWithEdge:edge];
+}
+
++ (id<GREYAction>)actionForScrollToContentEdge:(GREYContentEdge)edge
+                        xOriginStartPercentage:(CGFloat)xOriginStartPercentage
+                        yOriginStartPercentage:(CGFloat)yOriginStartPercentage {
+  return [[GREYScrollToContentEdgeAction alloc] initWithEdge:edge
+                                          startPointPercents:CGPointMake(xOriginStartPercentage,
+                                                                         yOriginStartPercentage)];
 }
 
 + (id<GREYAction>)actionForTurnSwitchOn:(BOOL)on {
@@ -129,122 +169,32 @@
 }
 
 + (id<GREYAction>)actionForTypeText:(NSString *)text {
-  return [GREYActions actionForTypeText:text atUITextPosition:nil];
+  return [GREYActions grey_actionForTypeText:text atUITextPosition:nil];
 }
 
-// Use the iOS keyboard to type a string starting from the provided UITextPosition. If position is
-// nil, then will type text from the text input's current position. Should only be called with a
-// position if element conforms to the UITextInput protocol - which it should if you derived the
-// UITextPosition from the element.
-+ (id<GREYAction>)actionForTypeText:(NSString *)text atUITextPosition:(UITextPosition *)position {
-  return [GREYActionBlock actionWithName:[NSString stringWithFormat:@"Type \"%@\"", text]
-                             constraints:grey_not(grey_systemAlertViewShown())
-                            performBlock:^BOOL (id element, __strong NSError **errorOrNil) {
-    UIView *expectedFirstResponderView;
-    if (![element isKindOfClass:[UIView class]]) {
-      expectedFirstResponderView = [element grey_viewContainingSelf];
-    } else {
-      expectedFirstResponderView = element;
-    }
-
-    // If expectedFirstResponderView or one of its ancestors isn't the first responder, tap on
-    // it so it becomes the first responder.
-    if (![expectedFirstResponderView isFirstResponder] &&
-        ![grey_ancestor(grey_firstResponder()) matches:expectedFirstResponderView]) {
-      // Tap on the element to make expectedFirstResponderView a first responder.
-      if (![[GREYActions actionForTap] perform:element error:errorOrNil]) {
-        return NO;
-      }
-      // Wait for keyboard to show up and any other UI changes to take effect.
-      if (![GREYKeyboard waitForKeyboardToAppear]) {
-        NSString *description = @"Keyboard did not appear after tapping on %@. Are you sure that "
-                                @"tapping on this element will bring up the keyboard?";
-        [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                        withDomain:kGREYInteractionErrorDomain
-                                              code:kGREYInteractionActionFailedErrorCode
-                              andDescriptionFormat:description, element];
-        return NO;
-      }
-    }
-
-    // Autocorrection might change the results of the type action in unexpected ways. In order to
-    // avoid that, we must disable autocorrection for the first responder before executing the
-    // action.
-    UITextAutocorrectionType originalAutocorrectionType = UITextAutocorrectionTypeNo;
-    id firstResponder = [expectedFirstResponderView.window firstResponder];
-    if ([firstResponder respondsToSelector:@selector(autocorrectionType)] &&
-        [firstResponder respondsToSelector:@selector(setAutocorrectionType:)]) {
-      originalAutocorrectionType = [firstResponder autocorrectionType];
-      [firstResponder setAutocorrectionType:UITextAutocorrectionTypeNo];
-
-      // If the view already is the first responder and had autocorrect enabled, it must
-      // resign and become first responder for the autocorrect type change to take effect.
-      [firstResponder resignFirstResponder];
-      if (![GREYKeyboard waitForKeyboardToDisappear]) {
-        NSString *description = @"Keyboard did not disappear after resigning first responder "
-                                @"status of %@";
-        [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                        withDomain:kGREYInteractionErrorDomain
-                                              code:kGREYInteractionActionFailedErrorCode
-                              andDescriptionFormat:description, firstResponder];
-        return NO;
-      }
-      [firstResponder becomeFirstResponder];
-      if (![GREYKeyboard waitForKeyboardToAppear]) {
-        NSString *description = @"Keyboard did not appear after %@ became the first responder.";
-        [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                        withDomain:kGREYInteractionErrorDomain
-                                              code:kGREYInteractionActionFailedErrorCode
-                              andDescriptionFormat:description, firstResponder];
-        return NO;
-      }
-    }
-
-    // If a position is given, move the text cursor to that position.
-    if (position) {
-      UITextRange *newRange = [element textRangeFromPosition:position toPosition:position];
-      [element setSelectedTextRange:newRange];
-    }
-
-    // After autocorrect is disabled, we can perform the actual typing.
-    BOOL retVal = [GREYKeyboard typeString:text error:errorOrNil];
-
-    // If the element's UITextAutocorrection type was changed, it has to be restored before
-    // continuing.
-    if (originalAutocorrectionType != UITextAutocorrectionTypeNo) {
-      [firstResponder setAutocorrectionType:originalAutocorrectionType];
-    }
-
-    return retVal;
-  }];
++ (id<GREYAction>)actionForReplaceText:(NSString *)text {
+  return [GREYActions grey_actionForReplaceText:text];
 }
 
 + (id<GREYAction>)actionForClearText {
-  Class webElement = NSClassFromString(@"WebAccessibilityObjectWrapper");
-  id<GREYMatcher> constraints = grey_anyOf(grey_respondsToSelector(@selector(text)),
-                                           grey_kindOfClass(webElement),
-                                           nil);
-  NSString *actionName = [NSString stringWithFormat:@"Clear text"];
-  return [GREYActionBlock actionWithName:actionName
+  id<GREYMatcher> constraints =
+      grey_anyOf(grey_respondsToSelector(@selector(text)),
+                 grey_kindOfClass(NSClassFromString(@"WebAccessibilityObjectWrapper")),
+                 grey_conformsToProtocol(@protocol(UITextInput)),
+                 nil);
+  return [GREYActionBlock actionWithName:@"Clear text"
                              constraints:constraints
                             performBlock:^BOOL (id element, __strong NSError **errorOrNil) {
     NSString *textStr;
-    // If we're dealing with a text field in a web view, we need to use JS to get the text value.
-    if ([element isKindOfClass:webElement]) {
-      // Input tags can be identified by having the 'title' attribute set, or current value.
-      // Associating a <label> tag to the input tag does NOT result in an iOS accessibility element.
-      NSString *xPathResultType = @"XPathResult.FIRST_ORDERED_NODE_TYPE";
-      NSString *xPathForTitle =
-          [NSString stringWithFormat:@"//input[@title=\"%@\" or @value=\"%@\"]",
-              [element accessibilityLabel], [element accessibilityLabel]];
-      NSString *jsForTitle = [[NSString alloc] initWithFormat:
-          @"document.evaluate('%@', document, null, %@, null).singleNodeValue.value = '';",
-          xPathForTitle,
-          xPathResultType];
-      UIWebView *parentWebView = (UIWebView *)[element grey_viewContainingSelf];
-      textStr = [parentWebView stringByEvaluatingJavaScriptFromString:jsForTitle];
-    } else {
+    if ([element grey_isWebAccessibilityElement]) {
+      [GREYActions grey_webClearText:element];
+      return YES;
+    } else if ([element respondsToSelector:@selector(text)]) {
       textStr = [element text];
+    } else {
+      UITextRange *range = [element textRangeFromPosition:[element beginningOfDocument]
+                                               toPosition:[element endOfDocument]];
+      textStr = [element textInRange:range];
     }
 
     NSMutableString *deleteStr = [[NSMutableString alloc] init];
@@ -255,8 +205,8 @@
     if (deleteStr.length == 0) {
       return YES;
     } else if ([element conformsToProtocol:@protocol(UITextInput)]) {
-      id<GREYAction> typeAtEnd = [GREYActions actionForTypeText:deleteStr
-                                               atUITextPosition:[element endOfDocument]];
+      id<GREYAction> typeAtEnd = [GREYActions grey_actionForTypeText:deleteStr
+                                                    atUITextPosition:[element endOfDocument]];
       return [typeAtEnd perform:element error:errorOrNil];
     } else {
       return [[GREYActions actionForTypeText:deleteStr] perform:element error:errorOrNil];
@@ -317,15 +267,302 @@
                                   performBlock:^BOOL (id element, __strong NSError **errorOrNil) {
     UIImage *snapshot = [GREYScreenshotUtil snapshotElement:element];
     if (snapshot == nil) {
-      [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                      withDomain:kGREYInteractionErrorDomain
-                                            code:kGREYInteractionActionFailedErrorCode
-                            andDescriptionFormat:@"Failed to take snapshot. Snapshot is nil."];
+      GREYPopulateErrorOrLog(errorOrNil,
+                             kGREYInteractionErrorDomain,
+                             kGREYInteractionActionFailedErrorCode,
+                             @"Failed to take snapshot. Snapshot is nil.");
       return NO;
     } else {
       *outImage = snapshot;
       return YES;
     }
+  }];
+}
+
+#pragma mark - Private
+
+/**
+ *  Clears WebView input text value.
+ *
+ *  @param element The element to target
+ */
++ (void)grey_webClearText:(id)element {
+  [GREYActions grey_webSetText:element text:@""];
+}
+
+/**
+ *  Sets WebView input text value.
+ *
+ *  @param element The element to target
+ *  @param text The text to set
+ */
++ (void)grey_webSetText:(id)element text:(NSString *)text {
+  // Input tags can be identified by having the 'title' attribute set, or current value.
+  // Associating a <label> tag to the input tag does NOT result in an iOS accessibility element.
+  if (!text) {
+    text = @"";
+  }
+  // Must escape ' or the JS will be invalid.
+  text = [text stringByReplacingOccurrencesOfString:@"\'" withString:@"\\\'"];
+
+  NSString *xPathResultType = @"XPathResult.FIRST_ORDERED_NODE_TYPE";
+  NSString *xPathForTitle = [NSString stringWithFormat:@"//input[@title=\"%@\" or @value=\"%@\"]",
+                                                       [element accessibilityLabel],
+                                                       [element accessibilityLabel]];
+  NSString *format = @"document.evaluate('%@', document, null, %@, null).singleNodeValue.value"
+                     @"= '%@';";
+  NSString *jsForTitle = [[NSString alloc] initWithFormat:format,
+                                                          xPathForTitle,
+                                                          xPathResultType,
+                                                          text];
+  UIWebView *parentWebView = (UIWebView *)[element grey_viewContainingSelf];
+  [parentWebView stringByEvaluatingJavaScriptFromString:jsForTitle];
+}
+
+/**
+ *  Set the UITextField text value directly, bypassing the iOS keyboard.
+ *
+ *  @param text The text to be typed.
+ *
+ *  @return @c YES if the action succeeded, else @c NO. If an action returns @c NO, it does not
+ *          mean that the action was not performed at all but somewhere during the action execution
+ *          the error occured and so the UI may be in an unrecoverable state.
+ */
++ (id<GREYAction>)grey_actionForReplaceText:(NSString *)text {
+  SEL setTextSelector = NSSelectorFromString(@"setText:");
+  id<GREYMatcher> constraints =
+      grey_anyOf(grey_respondsToSelector(setTextSelector),
+                 grey_kindOfClass(NSClassFromString(@"WebAccessibilityObjectWrapper")),
+                 nil);
+  NSString *replaceActionName = [NSString stringWithFormat:@"Replace with text: \"%@\"", text];
+  return [GREYActionBlock actionWithName:replaceActionName
+                             constraints:constraints
+                            performBlock:^BOOL (id element, __strong NSError **errorOrNil) {
+    if ([element grey_isWebAccessibilityElement]) {
+      [GREYActions grey_webSetText:element text:text];
+    } else {
+      BOOL elementIsUIControl = [element isKindOfClass:[UIControl class]];
+      BOOL elementIsUITextField = [element isKindOfClass:[UITextField class]];
+
+      // Did begin editing notifications.
+      if (elementIsUIControl) {
+        [element sendActionsForControlEvents:UIControlEventEditingDidBegin];
+      }
+
+      if (elementIsUITextField) {
+        NSNotification *notification =
+            [NSNotification notificationWithName:UITextFieldTextDidBeginEditingNotification
+                                          object:element];
+        [NSNotificationCenter.defaultCenter postNotification:notification];
+      }
+
+      // Actually change the text.
+      [element setText:text];
+
+      // Did change editing notifications.
+      if (elementIsUIControl) {
+        [element sendActionsForControlEvents:UIControlEventEditingChanged];
+      }
+      if (elementIsUITextField) {
+        NSNotification *notification =
+            [NSNotification notificationWithName:UITextFieldTextDidChangeNotification
+                                          object:element];
+        [NSNotificationCenter.defaultCenter postNotification:notification];
+      }
+
+      // Did end editing notifications.
+      if (elementIsUIControl) {
+        [element sendActionsForControlEvents:UIControlEventEditingDidEndOnExit];
+        [element sendActionsForControlEvents:UIControlEventEditingDidEnd];
+      }
+      if (elementIsUITextField) {
+        NSNotification *notification =
+            [NSNotification notificationWithName:UITextFieldTextDidEndEditingNotification
+                                          object:element];
+        [NSNotificationCenter.defaultCenter postNotification:notification];
+      }
+    }
+    return YES;
+  }];
+}
+
+/**
+ *  Performs typing in the provided element by turning off autocorrect. In case of OS versions
+ *  that provide an easy API to turn off autocorrect from the settings, we do that, else we obtain
+ *  the element being typed in, and turn off autocorrect for that element while being typed on.
+ *
+ *  @param      text           The text to be typed.
+ *  @param      firstResponder The element the action is to be performed on.
+ *                             This must not be @c nil.
+ *  @param[out] errorOrNil     Error that will be populated on failure. The implementing class
+ *                             should handle the behavior when it is @c nil by, for example,
+ *                             logging the error or throwing an exception.
+ *
+ *  @return @c YES if the action succeeded, else @c NO. If an action returns @c NO, it does not
+ *          mean that the action was not performed at all but somewhere during the action execution
+ *          the error occured and so the UI may be in an unrecoverable state.
+ */
++ (BOOL)grey_disableAutoCorrectForDelegateAndTypeText:(NSString *)text
+                                     inFirstResponder:(id)firstResponder
+                                            withError:(__strong NSError **)errorOrNil {
+  // If you're clearing the text label or if the first responder does not have an
+  // autocorrectionType option then you do not need to have the autocorrect turned off.
+  NSCharacterSet *set = [NSCharacterSet characterSetWithCharactersInString:@"\b"];
+  if ([text stringByTrimmingCharactersInSet:set].length == 0 ||
+      ![firstResponder respondsToSelector:@selector(autocorrectionType)]) {
+    return [GREYKeyboard typeString:text
+                   inFirstResponder:firstResponder
+                              error:errorOrNil];
+  }
+
+  // Obtain the current delegate from the keyboard. This can only be called when the keyboard is
+  // up. The original delegate has to be passed here in order to change the autocorrection type
+  // since we reset the delegate in the grey_setAutocorrectionType:forIntance:
+  // withOriginalKeyboardDelegate:withKeyboardToggling method in order for the autocorrection type
+  // change to take effect.
+  id keyboardInstance = [UIKeyboardImpl sharedInstance];
+  id originalKeyboardDelegate = [keyboardInstance delegate];
+  UITextAutocorrectionType originalAutoCorrectionType =
+      [originalKeyboardDelegate autocorrectionType];
+  // For a copy of the keyboard's delegate, turn the autocorrection off. Set this copy back
+  // as the delegate.
+  [self grey_setAutocorrectionType:UITextAutocorrectionTypeNo
+                       forInstance:keyboardInstance
+      withOriginalKeyboardDelegate:originalKeyboardDelegate
+              withKeyboardToggling:iOS8_1_OR_ABOVE()];
+
+  // Type the string in the delegate text field.
+  BOOL typingResult = [GREYKeyboard typeString:text
+                              inFirstResponder:firstResponder
+                                         error:errorOrNil];
+
+  // Reset the keyboard delegate's autocorrection back to the original one.
+  [self grey_setAutocorrectionType:originalAutoCorrectionType
+                       forInstance:keyboardInstance
+      withOriginalKeyboardDelegate:originalKeyboardDelegate
+              withKeyboardToggling:NO];
+  return typingResult;
+}
+
+/**
+ *  For the particular element being typed in, signified by the delegate of the keyboard instance
+ *  turn off autocorrection. To provide a delay in this action, we can also hide and show the
+ *  keyboard.
+ *
+ *  @param autoCorrectionType         The autocorrection type to set the current keyboard to.
+ *  @param keyboardInstance           The active keyboard instance.
+ *  @param toggleKeyboardVisibilityOn A switch to show/hide the keyboard.
+ *
+ */
++ (void)grey_setAutocorrectionType:(BOOL)autoCorrectionType
+                       forInstance:(id)keyboardInstance
+      withOriginalKeyboardDelegate:(id)keyboardDelegate
+              withKeyboardToggling:(BOOL)toggleKeyboardVisibilityOn {
+  if (toggleKeyboardVisibilityOn) {
+    [keyboardInstance hideKeyboard];
+  }
+  [keyboardDelegate setAutocorrectionType:autoCorrectionType];
+  [keyboardInstance setDelegate:keyboardDelegate];
+  if (toggleKeyboardVisibilityOn) {
+    [keyboardInstance showKeyboard];
+  }
+}
+
+/**
+ *  Directly perform typing without any changes in the first responder element whatsoever.
+ *
+ *  @param      text           The text to be typed.
+ *  @param      firstResponder The element the action is to be performed on.
+ *                             This must not be @c nil.
+ *  @param[out] errorOrNil     Error that will be populated on failure. The implementing class
+ *                             should handle the behavior when it is @c nil by, for example,
+ *                             logging the error or throwing an exception.
+ *
+ *  @return @c YES if the action succeeded, else @c NO. If an action returns @c NO, it does not
+ *          mean that the action was not performed at all but somewhere during the action execution
+ *          the error occured and so the UI may be in an unrecoverable state.
+ */
++ (BOOL)grey_withAutocorrectAlreadyDisabledTypeText:(NSString *)text
+                                   inFirstResponder:firstResponder
+                                          withError:(__strong NSError **)errorOrNil {
+  // Perform typing. This requires autocorrect to be turned off. In
+  // the case of iOS8+, this is done through the Keyboard Settings bundle.
+  return [GREYKeyboard typeString:text inFirstResponder:firstResponder error:errorOrNil];
+}
+
+#pragma mark - Package Internal
+
++ (id<GREYAction>)grey_actionForTypeText:(NSString *)text
+                        atUITextPosition:(UITextPosition *)position {
+  return [GREYActionBlock actionWithName:[NSString stringWithFormat:@"Type '%@'", text]
+                             constraints:grey_not(grey_systemAlertViewShown())
+                            performBlock:^BOOL (id element, __strong NSError **errorOrNil) {
+    UIView *expectedFirstResponderView;
+    if (![element isKindOfClass:[UIView class]]) {
+      expectedFirstResponderView = [element grey_viewContainingSelf];
+    } else {
+      expectedFirstResponderView = element;
+    }
+
+    // If expectedFirstResponderView or one of its ancestors isn't the first responder, tap on
+    // it so it becomes the first responder.
+    if (![expectedFirstResponderView isFirstResponder] &&
+        ![grey_ancestor(grey_firstResponder()) matches:expectedFirstResponderView]) {
+      // Tap on the element to make expectedFirstResponderView a first responder.
+      if (![[GREYActions actionForTap] perform:element error:errorOrNil]) {
+        return NO;
+      }
+      // Wait for keyboard to show up and any other UI changes to take effect.
+      if (![GREYKeyboard waitForKeyboardToAppear]) {
+        NSString *description = @"Keyboard did not appear after tapping on element [E]. "
+            @"Are you sure that tapping on this element will bring up the keyboard?";
+        NSDictionary *glossary = @{ @"E" : [element grey_description] };
+        GREYPopulateErrorNotedOrLog(errorOrNil,
+                                    kGREYInteractionErrorDomain,
+                                    kGREYInteractionActionFailedErrorCode,
+                                    description,
+                                    glossary);
+        return NO;
+      }
+    }
+
+    // If a position is given, move the text cursor to that position.
+    id firstResponder = [[expectedFirstResponderView window] firstResponder];
+    if (position) {
+      if ([firstResponder conformsToProtocol:@protocol(UITextInput)]) {
+        UITextRange *newRange = [firstResponder textRangeFromPosition:position toPosition:position];
+        [firstResponder setSelectedTextRange:newRange];
+      } else {
+        NSString *description = @"First responder [F] of element [E] does not conform to "
+            @"UITextInput protocol.";
+        NSDictionary *glossary = @{ @"F" : [firstResponder description],
+                                    @"E" : [expectedFirstResponderView description] };
+        GREYPopulateErrorNotedOrLog(errorOrNil,
+                                    kGREYInteractionErrorDomain,
+                                    kGREYInteractionActionFailedErrorCode,
+                                    description,
+                                    glossary);
+        return NO;
+      }
+    }
+
+    BOOL retVal;
+
+    if (iOS8_2_OR_ABOVE()) {
+      // Directly perform the typing since for iOS8.2 and above, we directly turn off Autocorrect
+      // and Predictive Typing from the settings.
+      retVal = [self grey_withAutocorrectAlreadyDisabledTypeText:text
+                                                inFirstResponder:firstResponder
+                                                       withError:errorOrNil];
+    } else {
+      // Perform typing. If this is pre-iOS8.2, then we simply turn the autocorrection
+      // off the current textfield being typed in.
+      retVal = [self grey_disableAutoCorrectForDelegateAndTypeText:text
+                                                  inFirstResponder:firstResponder
+                                                         withError:errorOrNil];
+    }
+
+    return retVal;
   }];
 }
 
@@ -335,6 +572,10 @@
 
 id<GREYAction> grey_doubleTap(void) {
   return [GREYActions actionForMultipleTapsWithCount:2];
+}
+
+id<GREYAction> grey_doubleTapAtPoint(CGPoint point) {
+  return [GREYActions actionForMultipleTapsWithCount:2 atPoint:point];
 }
 
 id<GREYAction> grey_multipleTapsWithCount(NSUInteger count) {
@@ -357,8 +598,26 @@ id<GREYAction> grey_scrollInDirection(GREYDirection direction, CGFloat amount) {
   return [GREYActions actionForScrollInDirection:direction amount:amount];
 }
 
+id<GREYAction> grey_scrollInDirectionWithStartPoint(GREYDirection direction,
+                                                    CGFloat amount,
+                                                    CGFloat xOriginStartPercentage,
+                                                    CGFloat yOriginStartPercentage) {
+  return [GREYActions actionForScrollInDirection:direction
+                                          amount:amount
+                          xOriginStartPercentage:xOriginStartPercentage
+                          yOriginStartPercentage:yOriginStartPercentage];
+}
+
 id<GREYAction> grey_scrollToContentEdge(GREYContentEdge edge) {
   return [GREYActions actionForScrollToContentEdge:edge];
+}
+
+id<GREYAction> grey_scrollToContentEdgeWithStartPoint(GREYContentEdge edge,
+                                                      CGFloat xOriginStartPercentage,
+                                                      CGFloat yOriginStartPercentage) {
+  return [GREYActions actionForScrollToContentEdge:edge
+                            xOriginStartPercentage:xOriginStartPercentage
+                            yOriginStartPercentage:yOriginStartPercentage];
 }
 
 id<GREYAction> grey_swipeFastInDirection(GREYDirection direction) {
@@ -385,6 +644,16 @@ id<GREYAction> grey_swipeSlowInDirectionWithStartPoint(GREYDirection direction,
                              yOriginStartPercentage:yOriginStartPercentage];
 }
 
+id<GREYAction> grey_pinchFastInDirectionAndAngle(GREYPinchDirection pinchDirection,
+                                                 double angle) {
+  return [GREYActions actionForPinchFastInDirection:pinchDirection withAngle:angle];
+}
+
+id<GREYAction> grey_pinchSlowInDirectionAndAngle(GREYPinchDirection pinchDirection,
+                                                 double angle) {
+  return [GREYActions actionForPinchSlowInDirection:pinchDirection withAngle:angle];
+}
+
 id<GREYAction> grey_moveSliderToValue(float value) {
   return [GREYActions actionForMoveSliderToValue:value];
 }
@@ -403,6 +672,10 @@ id<GREYAction> grey_tapAtPoint(CGPoint point) {
 
 id<GREYAction> grey_typeText(NSString *text) {
   return [GREYActions actionForTypeText:text];
+}
+
+id<GREYAction> grey_replaceText(NSString *text) {
+  return [GREYActions actionForReplaceText:text];
 }
 
 id<GREYAction> grey_clearText(void) {

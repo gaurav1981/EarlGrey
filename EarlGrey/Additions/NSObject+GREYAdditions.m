@@ -16,21 +16,22 @@
 
 #import "Additions/NSObject+GREYAdditions.h"
 
-#import <objc/runtime.h>
+#include <objc/runtime.h>
 
 #import "Additions/CGGeometry+GREYAdditions.h"
 #import "Additions/NSString+GREYAdditions.h"
 #import "Assertion/GREYAssertionDefines.h"
 #import "Common/GREYConfiguration.h"
 #import "Common/GREYConstants.h"
+#import "Common/GREYElementHierarchy.h"
 #import "Common/GREYSwizzler.h"
 #import "Synchronization/GREYAppStateTracker.h"
 #import "Synchronization/GREYTimedIdlingResource.h"
 
 /**
- *  Key to store map of perform selector arguments to timed resource trackers.
+ *  Class that all Web Accessibility Elements have to be a kind of.
  */
-static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
+static Class gWebAccessibilityWrapper;
 
 @implementation NSObject (GREYAdditions)
 
@@ -60,24 +61,36 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
                     withMethod:swizzledSEL];
     NSAssert(swizzleSuccess,
              @"Cannot swizzle NSObject's performSelector:withObject:afterDelay:inModes");
+    gWebAccessibilityWrapper = NSClassFromString(@"WebAccessibilityObjectWrapper");
+  }
+}
+
+- (NSString *)grey_recursiveDescription {
+  if ([self grey_isWebAccessibilityElement]) {
+    return [GREYElementHierarchy hierarchyStringForElement:[self grey_viewContainingSelf]];
+  } else if ([self isKindOfClass:[UIView class]] ||
+             [self respondsToSelector:@selector(accessibilityContainer)]) {
+    return [GREYElementHierarchy hierarchyStringForElement:self];
+  } else {
+    NSAssert(NO, @"The element hierarchy call is being made on an element that is not a valid "
+                 @"UI element.");
+    return nil;
   }
 }
 
 - (UIView *)grey_viewContainingSelf {
-  UIView *parentView;
   if ([self grey_isWebAccessibilityElement]) {
-    parentView = [[self grey_containersAssignableFromClass:[UIWebView class]] firstObject];
+    return [[self grey_containersAssignableFromClass:[UIWebView class]] firstObject];
   } else if ([self isKindOfClass:[UIView class]]) {
-    parentView = [(UIView *)self superview];
+    return [self grey_container];
   } else if ([self respondsToSelector:@selector(accessibilityContainer)]) {
-    id container = [(UIAccessibilityElement *)self accessibilityContainer];
-    if ([container isKindOfClass:[UIView class]]) {
-      parentView = (UIView *)container;
-    } else {
-      parentView = [container grey_viewContainingSelf];
+    id container = [self grey_container];
+    if (![container isKindOfClass:[UIView class]]) {
+      return [container grey_viewContainingSelf];
     }
+    return container;
   }
-  return parentView;
+  return nil;
 }
 
 - (id)grey_container {
@@ -108,7 +121,7 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
  *  @return @c YES if @c self is an accessibility element within a UIWebView, @c NO otherwise.
  */
 - (BOOL)grey_isWebAccessibilityElement {
-  return [self isKindOfClass:NSClassFromString(@"WebAccessibilityObjectWrapper")];
+  return [self isKindOfClass:gWebAccessibilityWrapper];
 }
 
 - (CGPoint)grey_accessibilityActivationPointInWindowCoordinates {
@@ -214,7 +227,7 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
     [description appendFormat:@"; alpha=%g", selfAsView.alpha];
 
     if (!selfAsView.isUserInteractionEnabled) {
-      [description appendString:@"; interaction=N"];
+      [description appendString:@"; UIE=N"];
     }
   }
 
@@ -283,6 +296,8 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
   }
 }
 
+#pragma mark - Package Internal
+
 - (void)greyswizzled_performSelector:(SEL)aSelector
                           withObject:(id)anArgument
                           afterDelay:(NSTimeInterval)delay
@@ -296,7 +311,7 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
       // As a safeguard, track the pending call for twice the amount incase the execution is
       // *really* delayed (due to cpu trashing) for more than the expected execution-time.
       // The custom selector will stop tracking as soon as it is triggered.
-      NSString *trackerName = [NSString stringWithFormat:@"performSelector %@ on %@",
+      NSString *trackerName = [NSString stringWithFormat:@"performSelector @selector(%@) on %@",
                                   NSStringFromSelector(aSelector), NSStringFromClass([self class])];
       // For negative delays use 0.
       NSTimeInterval nonNegativeDelay = MAX(0, 2 * delay);
@@ -434,7 +449,7 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
       [self grey_unmapAllTrackersForPerformSelectorArguments:arguments];
     }
     objc_setAssociatedObject(self,
-                             kArgumentsToTrackerKey,
+                             @selector(grey_customPerformSelectorWithParameters:),
                              nil,
                              OBJC_ASSOCIATION_ASSIGN);
   }
@@ -445,11 +460,12 @@ static void const *const kArgumentsToTrackerKey = &kArgumentsToTrackerKey;
  */
 - (NSMutableDictionary *)grey_performSelectorArgumentsToTrackerMap {
   @synchronized(self) {
-    NSMutableDictionary *dictionary = objc_getAssociatedObject(self, kArgumentsToTrackerKey);
+    NSMutableDictionary *dictionary =
+        objc_getAssociatedObject(self, @selector(grey_customPerformSelectorWithParameters:));
     if (!dictionary) {
       dictionary = [[NSMutableDictionary alloc] init];
       objc_setAssociatedObject(self,
-                               kArgumentsToTrackerKey,
+                               @selector(grey_customPerformSelectorWithParameters:),
                                dictionary,
                                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }

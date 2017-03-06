@@ -44,4 +44,9 @@
  */
 + (NSString *)hierarchyStringForElement:(id)element
                withAnnotationDictionary:(NSDictionary *)annotationDictionary;
+
+/**
+ *  Returns the UI hierarchy for all @c UIWindows provided by the GREYUIWindowProvider.
+ */
++ (NSString *)hierarchyStringForAllUIWindows;
 @end

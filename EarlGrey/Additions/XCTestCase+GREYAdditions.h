@@ -15,47 +15,47 @@
 //
 
 #import <UIKit/UIKit.h>
-#import <XCTest/XCTestCase.h>
+#import <XCTest/XCTest.h>
 
 /**
  *  Posted immediately prior to XCTestCase::setUp. The @c userInfo dictionary contains
- *  the current XCTestCase.
+ *  the executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceWillSetUp;
 
 /**
  *  Posted immediately after XCTestCase::setUp is called. The @c userInfo dictionary contains the
- *  current XCTestCase.
+ *  executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceDidSetUp;
 
 /**
  *  Posted immediately prior to XCTestCase::tearDown. The @c userInfo dictionary contains
- *  the current XCTestCase.
+ *  the executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceWillTearDown;
 
 /**
  *  Posted immediately after XCTestCase::tearDown is called. The @c userInfo dictionary contains
- *  the current XCTestCase.
+ *  the executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceDidTearDown;
 
 /**
  *  Posted immediately after XCTestCase::invokeTest is executed successfully, denoting that the
- *  test has passed. The @c userInfo dictionary contains the current XCTestCase.
+ *  test has passed. The @c userInfo dictionary contains the executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceDidPass;
 
 /**
  *  Posted immediately after XCTestCase::invokeTest raises an Exception, denoting that the test has
- *  failed. The @c userInfo dictionary contains the current XCTestCase.
+ *  failed. The @c userInfo dictionary contains the executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceDidFail;
 
 /**
  *  Posted immediately after a XCTestCase finishes, successfully or not. The @c userInfo dictionary
- *  contains the current XCTestCase.
+ *  contains the executing XCTestCase.
  */
 UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceDidFinish;
 
@@ -65,6 +65,15 @@ UIKIT_EXTERN NSString *const kGREYXCTestCaseInstanceDidFinish;
 UIKIT_EXTERN NSString *const kGREYXCTestCaseNotificationKey;
 
 /**
+ *  Enumeration with the possible statuses of an XCTestCase.
+ */
+typedef NS_ENUM(NSUInteger, GREYXCTestCaseStatus) {
+  kGREYXCTestCaseStatusUnknown = 0,
+  kGREYXCTestCaseStatusPassed,
+  kGREYXCTestCaseStatusFailed,
+};
+
+/**
  *  Extends XCTestCase with capabilities to return current testcase and allows observing various
  *  states of test execution. Also allows clearing various states that can leak across from one
  *  testcase to another.
@@ -72,14 +81,14 @@ UIKIT_EXTERN NSString *const kGREYXCTestCaseNotificationKey;
 @interface XCTestCase (GREYAdditions)
 
 /**
- *  @return The current XCTestCase being executed or @c nil if called outside context of a test
+ *  @return The current XCTestCase being executed or @c nil if called outside the context of a test
  *          method.
  */
 + (XCTestCase *)grey_currentTestCase;
 
 /**
- *  @return The name of the current test method being executed or @c nil if called outside context
- *          of a test method.
+ *  @return The name of the current test method being executed or @c nil if called outside the
+ *          context of a test method.
  */
 - (NSString *)grey_testMethodName;
 
@@ -89,10 +98,21 @@ UIKIT_EXTERN NSString *const kGREYXCTestCaseNotificationKey;
 - (NSString *)grey_testClassName;
 
 /**
- *  Interrupts the current test case execution immediately, tears down the test and marks it as
- *  failed.
+ *  @return The status (passed, failed, unknown) of this test.
  */
-- (void)grey_interruptExecution;
+- (GREYXCTestCaseStatus)grey_status;
+
+/**
+ *  Interrupts the current test case execution immediately and triggers XCTest's error handling
+ *  mechanism to invoke the appropriate methods to tear down the test.
+ *
+ *  @param line        Line number at which the failure occured.
+ *  @param file        Name of the file in which the failure occured.
+ *  @param description Full description of the failure.
+ */
+- (void)grey_markAsFailedAtLine:(NSUInteger)line
+                         inFile:(NSString *)file
+                    description:(NSString *)description;
 
 /**
  *  @return A unique test outputs directory for the current test. All test related outputs should be

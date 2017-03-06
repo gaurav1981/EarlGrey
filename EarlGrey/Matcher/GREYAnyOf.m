@@ -34,7 +34,7 @@
 #pragma mark - GREYMatcher
 
 - (BOOL)matches:(id)item {
-  return [self matches:item describingMismatchTo:nil];
+  return [self matches:item describingMismatchTo:[[GREYStringDescription alloc] init]];
 }
 
 - (BOOL)matches:(id)item describingMismatchTo:(id<GREYDescription>)mismatchDescription {
@@ -74,6 +74,10 @@ id<GREYMatcher> grey_anyOf(id<GREYMatcher> matcher, ...) {
 
   va_end(args);
   return [[GREYAnyOf alloc] initWithMatchers:matcherList];
+}
+
+id<GREYMatcher> grey_anyOfMatchers(NSArray<GREYMatcher> *matchers) {
+  return [[GREYAnyOf alloc] initWithMatchers:matchers];
 }
 
 #endif // GREY_DISABLE_SHORTHAND

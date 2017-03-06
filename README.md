@@ -1,4 +1,9 @@
 # EarlGrey
+[![Apache License](https://img.shields.io/badge/license-Apache%202-lightgrey.svg?style=flat)](https://github.com/google/EarlGrey/blob/master/LICENSE)
+[![CC-BY 4.0 License](https://img.shields.io/badge/license-CC%20BY%204.0-lightgrey.svg)](https://github.com/google/EarlGrey/blob/master/LICENSE)
+[![CocoaPods](https://img.shields.io/cocoapods/v/EarlGrey.svg?maxAge=2592000)](https://cocoapods.org/pods/EarlGrey)
+[![Build Status](https://travis-ci.org/google/EarlGrey.svg?branch=master)](https://travis-ci.org/google/EarlGrey)
+[![Carthage compatible](https://img.shields.io/badge/Carthage-compatible-4BC51D.svg?style=flat)](https://github.com/Carthage/Carthage)
 
 EarlGrey is a native iOS UI automation test framework that enables you to write
 clear, concise tests.
@@ -28,39 +33,53 @@ configured, take a look at the EarlGrey API and start writing your own tests.
   * [Backward Compatibility](https://github.com/google/EarlGrey/tree/master/docs/backward-compatibility.md)
   * [Install and Run](https://github.com/google/EarlGrey/tree/master/docs/install-and-run.md)
   * [API](https://github.com/google/EarlGrey/tree/master/docs/api.md)
+  * [Cheat Sheet](https://github.com/google/EarlGrey/tree/master/docs/cheatsheet/cheatsheet.png)
 
 ## Getting Help
 
 If you need help, several resources are available. First check the [FAQ](https://github.com/google/EarlGrey/tree/master/docs/faq.md).
 If you have more questions after reading the FAQ, see [Known Issues](https://github.com/google/EarlGrey/tree/master/docs/known-issues.md).
-If you still have questions, you can bring them to our attention by asking them on
+You can bring more specific issues to our attention by asking them on
 [stackoverflow.com](http://stackoverflow.com/) using the [#earlgrey tag](http://stackoverflow.com/questions/tagged/earlgrey).
-You can also start new discussions with us on our [Google group](https://groups.google.com/forum/#!forum/earlgrey-discuss).
+You can also start new discussions with us on our [Google group](https://groups.google.com/forum/#!forum/earlgrey-discuss)
+or request to join our [slack channel](https://googleoss.slack.com/messages/earlgrey).
 
   * [FAQ](https://github.com/google/EarlGrey/tree/master/docs/faq.md)
   * [Known Issues](https://github.com/google/EarlGrey/tree/master/docs/known-issues.md)
   * [Stack Overflow](http://stackoverflow.com/questions/tagged/earlgrey)
+  * [Slack](https://googleoss.slack.com/messages/earlgrey)
   * [Google Group](https://groups.google.com/forum/#!forum/earlgrey-discuss)
 
 ## Analytics
 
 To prioritize and improve EarlGrey, the framework collects usage data and
 uploads it to Google Analytics. More specifically, the framework collects the
-App’s *Bundle ID* (as a MD5 hash) and the total number of test cases. This
-information allows us to measure the volume of usage. If they wish, users can
-choose to opt out by disabling the Analytics config setting in their test’s
-setUp method:
+**MD5 hash** of *Bundle ID*,  *Test Class Names* and *Test Method Names*. This
+information allows us to measure the volume of usage. For more detailed
+information about our analytics collection, please peruse the
+[GREYAnalytics.m](https://github.com/google/EarlGrey/tree/master/EarlGrey/Common/GREYAnalytics.m)
+file which contains the implementation details. If they wish, users can choose
+to opt out by disabling the Analytics config setting in their test’s
+`- (void)setUp` method:
+
+In Objective-C:
 
 ```objc
 // Disable analytics.
-[[GREYConfiguration sharedInstance] setValue:@(NO)
-                                forConfigKey:kGREYConfigKeyAnalyticsEnabled];
+[[GREYConfiguration sharedInstance] setValue:@(NO) forConfigKey:kGREYConfigKeyAnalyticsEnabled];
+```
+
+In Swift:
+
+```swift
+// Disable analytics.
+GREYConfiguration.sharedInstance().setValue(false, forConfigKey: kGREYConfigKeyAnalyticsEnabled)
 ```
 
 ## For Contributors
 
 Please make sure you’ve followed the guidelines in
-[CONTRIBUTING.md](./CONTRIBUTING.md) before making any contributions.
+[CONTRIBUTING.md](https://github.com/google/EarlGrey/tree/master/CONTRIBUTING.md) before making any contributions.
 
 ### Setup an EarlGrey Project
 
@@ -70,8 +89,8 @@ Please make sure you’ve followed the guidelines in
     git clone https://github.com/google/EarlGrey.git
     ```
 
-  2. After you have cloned the EarlGrey repository, download all the dependencies using the
-  `setup-earlgrey.sh` script (run the script from the cloned repo).
+  2. After you have cloned the EarlGrey repository, download all the dependencies
+using [**setup-earlgrey.sh**](https://github.com/google/EarlGrey/tree/master/Scripts/setup-earlgrey.sh).
   3. After the script completes successfully, open `EarlGrey.xcodeproj` and ensure that all
 the targets build.
   4. You can now use `EarlGrey.xcodeproj` to make changes to the framework.

@@ -25,14 +25,15 @@
 + (void)load {
   @autoreleasepool {
     GREYSwizzler *swizzler = [[GREYSwizzler alloc] init];
-    BOOL swizzleSuccess = [swizzler swizzleClass:self
-                           replaceInstanceMethod:@selector(addTimer:forMode:)
-                                      withMethod:@selector(greyswizzled_addTimer:forMode:)];
+    GREY_UNUSED_VARIABLE BOOL swizzleSuccess =
+        [swizzler swizzleClass:self
+         replaceInstanceMethod:@selector(addTimer:forMode:)
+                    withMethod:@selector(greyswizzled_addTimer:forMode:)];
     NSAssert(swizzleSuccess, @"Cannot swizzle NSRunLoop addTimer:forMode:");
   }
 }
 
-# pragma mark - Swizzled Implementation
+#pragma mark - Swizzled Implementation
 
 - (void)greyswizzled_addTimer:(NSTimer *)timer forMode:(NSString *)mode {
   if ([mode isEqualToString:NSDefaultRunLoopMode]) {

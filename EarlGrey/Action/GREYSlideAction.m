@@ -16,13 +16,15 @@
 
 #import "Action/GREYSlideAction.h"
 
-#import <tgmath.h>
+#include <tgmath.h>
 
 #import "Additions/CGGeometry+GREYAdditions.h"
 #import "Additions/NSError+GREYAdditions.h"
 #import "Assertion/GREYAssertionDefines.h"
 #import "Common/GREYConstants.h"
 #import "Common/GREYDefines.h"
+#import "Common/GREYError.h"
+#import "Common/GREYLogger.h"
 #import "Core/GREYInteraction.h"
 #import "Event/GREYSyntheticEvents.h"
 #import "Matcher/GREYAllOf.h"
@@ -48,6 +50,8 @@
   return self;
 }
 
+#pragma mark - GREYAction
+
 - (BOOL)perform:(UISlider *)slider error:(__strong NSError **)errorOrNil {
   if (![self satisfiesConstraintsForElement:slider error:errorOrNil]) {
     return NO;
@@ -56,14 +60,14 @@
     return YES;
   }
 
-  if (![self checkEdgeCasesForFinalValueOfSlider:slider error:errorOrNil]) {
+  if (![self grey_checkEdgeCasesForFinalValueOfSlider:slider error:errorOrNil]) {
     return NO;
   };
 
   float currentSliderValue = slider.value;
 
   // Get the center of the thumb in coordinates respective of the slider it is in.
-  CGPoint touchPoint = [self centerOfSliderThumbInSliderCoordinates:slider];
+  CGPoint touchPoint = [self grey_centerOfSliderThumbInSliderCoordinates:slider];
 
   // Begin sliding by injecting touch events.
   GREYSyntheticEvents *eventGenerator = [[GREYSyntheticEvents alloc] init];
@@ -86,7 +90,7 @@
   double amountToSlide = stepSize * ((double)_finalValue - (double)currentSliderValue);
 
   // A value could be unattainable, in which case, this algorithm would run forever. From testing,
-  // we've seen that it takes anywhere from 2-4 interations to find a final value that is
+  // we've seen that it takes anywhere from 2-4 interactions to find a final value that is
   // acceptable (see constants defined above to understand what accepable is). So, we let the
   // algorithm run for at most ten iterations and then halt.
   static const unsigned short kAllowedAttemptsBeforeStopping = 10;
@@ -107,7 +111,7 @@
                                 expendable:NO];
 
       // For debugging purposes, leave this in.
-      NSLog(@"Slider value after moving: %f", slider.value);
+      GREYLogVerbose(@"Slider value after moving: %f", slider.value);
 
       // Update |previousSliderValue| and |currentSliderValue| only if slider value actually
       // changed.
@@ -136,7 +140,9 @@
   return YES;
 }
 
-- (CGPoint)centerOfSliderThumbInSliderCoordinates:(UISlider *)slider {
+#pragma mark - Private
+
+- (CGPoint)grey_centerOfSliderThumbInSliderCoordinates:(UISlider *)slider {
   CGRect sliderBounds = slider.bounds;
   CGRect trackBounds = [slider trackRectForBounds:sliderBounds];
   CGRect thumbBounds = [slider thumbRectForBounds:sliderBounds
@@ -145,8 +151,8 @@
   return CGPointMake(CGRectGetMidX(thumbBounds), CGRectGetMidY(thumbBounds));
 }
 
-- (BOOL)checkEdgeCasesForFinalValueOfSlider:(UISlider *)slider
-                                      error:(__strong NSError **)errorOrNil {
+- (BOOL)grey_checkEdgeCasesForFinalValueOfSlider:(UISlider *)slider
+                                           error:(__strong NSError **)errorOrNil {
   NSString *reason;
   if (isgreater(_finalValue, slider.maximumValue)) {
     reason = @"Value to move to is larger than slider's maximum value";
@@ -159,12 +165,18 @@
     return YES;
   }
 
-  [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                  withDomain:kGREYInteractionErrorDomain
-                                        code:kGREYInteractionActionFailedErrorCode
-                        andDescriptionFormat:@"%@: Slider's Minimum is %g, Maximum is %g, desired"
-                                             @" value is %g", reason, slider.minimumValue,
-                                             slider.maximumValue, _finalValue];
+  NSString *description = [NSString stringWithFormat:@"%@: Slider's Minimum is %g, Maximum is %g, "
+                                                     @"desired value is %g",
+                                                     reason,
+                                                     slider.minimumValue,
+                                                     slider.maximumValue,
+                                                     _finalValue];
+
+  GREYPopulateErrorOrLog(errorOrNil,
+                         kGREYInteractionErrorDomain,
+                         kGREYInteractionActionFailedErrorCode,
+                         description);
+
   return NO;
 }
 

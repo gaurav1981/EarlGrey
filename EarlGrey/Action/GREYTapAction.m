@@ -21,6 +21,7 @@
 #import "Additions/NSError+GREYAdditions.h"
 #import "Additions/NSObject+GREYAdditions.h"
 #import "Common/GREYDefines.h"
+#import "Common/GREYError.h"
 #import "Common/GREYVisibilityChecker.h"
 #import "Core/GREYInteraction.h"
 #import "Matcher/GREYAllOf.h"
@@ -62,7 +63,7 @@
 }
 
 - (instancetype)initLongPressWithDuration:(CFTimeInterval)duration {
-  return [self initLongPressWithDuration:duration location:CGPointNull];
+  return [self initLongPressWithDuration:duration location:GREYCGPointNull];
 }
 
 - (instancetype)initLongPressWithDuration:(CFTimeInterval)duration location:(CGPoint)location {
@@ -75,7 +76,7 @@
   return [self initWithType:tapType
                numberOfTaps:numberOfTaps
                    duration:duration
-                   location:CGPointNull];
+                   location:GREYCGPointNull];
 }
 
 - (instancetype)initWithType:(GREYTapType)tapType
@@ -83,6 +84,7 @@
                     duration:(CFTimeInterval)duration
                     location:(CGPoint)tapLocation {
   NSAssert((numberOfTaps > 0), @"You cannot initialize a tap action with zero taps.");
+
   NSString *name = [GREYTapAction grey_actionNameWithTapType:tapType
                                                     duration:duration
                                                 numberOfTaps:numberOfTaps];
@@ -123,11 +125,16 @@
       // transforms. Sending the tap directly to its windows is overall simpler.
       UIWindow *window = [element grey_viewContainingSelf].window;
       if (!window) {
-        [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                        withDomain:kGREYInteractionErrorDomain
-                                              code:kGREYInteractionActionFailedErrorCode
-                              andDescriptionFormat:@"Element: %@ is not attached to a window.",
-         element];
+        NSString *description =
+            [NSString stringWithFormat:@"Element [E] is not attached to a window."];
+        NSDictionary *glossary = @{ @"E" : [element grey_description] };
+
+        GREYPopulateErrorNotedOrLog(errorOrNil,
+                                    kGREYInteractionErrorDomain,
+                                    kGREYInteractionActionFailedErrorCode,
+                                    description,
+                                    glossary);
+
         return NO;
       }
       return [GREYTapper tapOnWindow:window
@@ -142,10 +149,15 @@
                                       error:errorOrNil];
     }
   }
-  [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                  withDomain:kGREYInteractionErrorDomain
-                                        code:kGREYInteractionActionFailedErrorCode
-                        andDescriptionFormat:@"Unknown tap type: %ld", (long)_type];
+
+  NSString *description =
+      [NSString stringWithFormat:@"Unknown tap type: %ld", (long)_type];
+
+  GREYPopulateErrorOrLog(errorOrNil,
+                         kGREYInteractionErrorDomain,
+                         kGREYInteractionActionFailedErrorCode,
+                         description);
+
   return NO;
 }
 
@@ -154,27 +166,18 @@
 + (NSString *)grey_actionNameWithTapType:(GREYTapType)tapType
                                 duration:(CFTimeInterval)duration
                             numberOfTaps:(NSUInteger)numberOfTaps {
-  NSString *actionName;
-
   switch (tapType) {
-    case kGREYTapTypeShort: {
-      actionName = @"Tap";
-      break;
-    }
-    case kGREYTapTypeMultiple: {
-      actionName = [NSString stringWithFormat:@"Tap %ld times", (long)numberOfTaps];
-      break;
-    }
-    case kGREYTapTypeLong: {
-      actionName = [NSString stringWithFormat:@"Long Press for %f seconds", duration];
-      break;
-    }
-    case kGREYTapTypeKBKey: {
-      actionName = [NSString stringWithFormat:@"Tap on keyboard key"];
-      break;
-    }
+    case kGREYTapTypeShort:
+      return @"Tap";
+    case kGREYTapTypeMultiple:
+      return [NSString stringWithFormat:@"Tap %ld times", (long)numberOfTaps];
+    case kGREYTapTypeLong:
+      return [NSString stringWithFormat:@"Long Press for %f seconds", duration];
+    case kGREYTapTypeKBKey:
+      return [NSString stringWithFormat:@"Tap on keyboard key"];
   }
-  return actionName;
+  NSAssert(NO, @"Unknown tapType %ld was provided", (long)tapType);
+  return nil;
 }
 
 /**

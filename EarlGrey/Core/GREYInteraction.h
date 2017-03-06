@@ -30,11 +30,15 @@ GREY_EXTERN NSString *const kGREYInteractionErrorDomain;
 /**
  *  Error codes for element interaction failures.
  */
-typedef NS_ENUM(NSInteger, GREYInteractionErrorCode){
+typedef NS_ENUM(NSInteger, GREYInteractionErrorCode) {
   /**
    *  Element search has failed.
    */
   kGREYInteractionElementNotFoundErrorCode = 0,
+  /**
+   *  Constraints failed for performing an interaction.
+   */
+  kGREYInteractionConstraintsFailedErrorCode,
   /**
    *  Action execution has failed.
    */
@@ -51,6 +55,11 @@ typedef NS_ENUM(NSInteger, GREYInteractionErrorCode){
    *  Single element search found multiple elements.
    */
   kGREYInteractionMultipleElementsMatchedErrorCode,
+  /**
+   *  Index provided for matching an element from multiple elements was over the number of elements
+   *  found.
+   */
+  kGREYInteractionMatchedElementIndexOutOfBoundsErrorCode,
 };
 
 /**
@@ -88,7 +97,7 @@ GREY_EXTERN NSString *const kGREYActionUserInfoKey;
 
 /**
  *  User Info dictionary key for the element an action was performed on. The element for an
- *  assertion can be nil in case of an error.
+ *  assertion can be @c nil in case of an error.
  */
 GREY_EXTERN NSString *const kGREYActionElementUserInfoKey;
 
@@ -104,7 +113,7 @@ GREY_EXTERN NSString *const kGREYAssertionUserInfoKey;
 
 /**
  *  User Info dictionary key for the element an assertion was checked on. The element for an
- *  assertion can be nil since assertions can be performed on nil elements.
+ *  assertion can be @c nil since assertions can be performed on @c nil elements.
  */
 GREY_EXTERN NSString *const kGREYAssertionElementUserInfoKey;
 
@@ -140,7 +149,18 @@ GREY_EXTERN NSString *const kGREYAssertionErrorUserInfoKey;
  *  to interact with (specified by GREYInteraction::selectElementWithMatcher:) is found or a
  *  timeout occurs. The search action is only performed when coupled with
  *  GREYInteraction::performAction:, GREYInteraction::assert:, or
- *  GREYInteraction::assertWithMatcher: APIs.
+ *  GREYInteraction::assertWithMatcher: APIs. This API only creates an interaction consisting of
+ *  repeated executions of the search action provided. You need to call an action or assertion
+ *  after this in order to interaction with the element being searched for.
+ *
+ *  For example, this code will perform an upward scroll of 50 points until an element is found
+ *  and then tap on it:
+ *      @code
+ *      [[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"elementToFind")]
+ *          usingSearchAction:grey_scrollInDirection(kGREYDirectionUp, 50.0f)
+ *       onElementWithMatcher:grey_accessibilityID(@"ScrollingWindow")]
+ *          performAction:grey_tap()] // This should be separately called for the action.
+ *      @endcode
  *
  *  @param action  The action to be performed on the element.
  *  @param matcher The matcher that the element matches.
@@ -214,5 +234,25 @@ GREY_EXTERN NSString *const kGREYAssertionErrorUserInfoKey;
  *          an error that will be populated on failure.
  */
 - (instancetype)assertWithMatcher:(id<GREYMatcher>)matcher error:(__strong NSError **)errorOrNil;
+
+/**
+ *  In case of multiple matches, selects the element at the specified index. In case of the
+ *  index being over the number of matched elements, it throws an exception. Please make sure
+ *  that this is used after you've created the matcher. For example, in case three elements are
+ *  matched, and you wish to match with the second one, then @c atIndex would be used in this
+ *  manner:
+ *
+ *  @code
+ *    [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Generic Matcher")] atIndex:1];
+ *  @endcode
+ *
+ *  @param index        The zero-indexed position of the element in the list of matched elements
+ *                      to be selected.
+ *  @throws NSException if the @c index is more than the number of matched elements.
+ *
+ *  @return An interaction (assertion or an action) to be performed on the element at the
+ *          specified index in the list of matched elements.
+ */
+- (instancetype)atIndex:(NSUInteger)index;
 
 @end

@@ -18,10 +18,12 @@
 #import <EarlGrey/GREYOperationQueueIdlingResource.h>
 #import <EarlGrey/GREYTimedIdlingResource.h>
 #import <EarlGrey/GREYUIThreadExecutor.h>
+#import <EarlGrey/GREYUIThreadExecutor+Internal.h>
 #import <EarlGrey/UIView+GREYAdditions.h>
 #import <objc/runtime.h>
 
 #import "GREYBaseTest.h"
+#import "GREYExposedForTesting.h"
 
 static BOOL gAppStateTrackerIdle;
 
@@ -59,7 +61,7 @@ static BOOL gAppStateTrackerIdle;
   NSOperationQueue *_backgroundQueue;
 }
 
-- (BOOL)grey_isIdle {
+- (BOOL)grey_isIdleNow {
   return gAppStateTrackerIdle;
 }
 
@@ -68,11 +70,11 @@ static BOOL gAppStateTrackerIdle;
 
   gAppStateTrackerIdle = YES;
 
-  // Swizzle isIdle so we can set the UI state to to whatever we like. This is useful for
+  // Swizzle isIdleNow so we can set the UI state to to whatever we like. This is useful for
   // testing various workflows where UI is in idle and non-idle state.
   method_exchangeImplementations(
-      class_getInstanceMethod([GREYAppStateTracker class], @selector(isIdle)),
-      class_getInstanceMethod([self class], @selector(grey_isIdle)));
+      class_getInstanceMethod([GREYAppStateTracker class], @selector(isIdleNow)),
+      class_getInstanceMethod([self class], @selector(grey_isIdleNow)));
 
   _threadExecutor = [GREYUIThreadExecutor sharedInstance];
 
@@ -87,8 +89,8 @@ static BOOL gAppStateTrackerIdle;
 - (void)tearDown {
   // Undo swizzling.
   method_exchangeImplementations(
-      class_getInstanceMethod([GREYAppStateTracker class], @selector(isIdle)),
-      class_getInstanceMethod([self class], @selector(grey_isIdle)));
+      class_getInstanceMethod([GREYAppStateTracker class], @selector(isIdleNow)),
+      class_getInstanceMethod([self class], @selector(grey_isIdleNow)));
 
   [[NSOperationQueue mainQueue] cancelAllOperations];
   [_backgroundQueue cancelAllOperations];
@@ -161,7 +163,7 @@ static BOOL gAppStateTrackerIdle;
   XCTAssertEqualObjects(kGREYUIThreadExecutorErrorDomain, error.domain);
   XCTAssertEqual(kGREYUIThreadExecutorTimeoutErrorCode, error.code);
 
-  NSString *errorSubstring = @"'background thread'";
+  NSString *errorSubstring = @"background thread";
   BOOL errorMatched = [error.description rangeOfString:errorSubstring].length > 0;
   XCTAssertTrue(errorMatched,
                 @"Reason '%@' does not contain substring '%@'",
@@ -237,7 +239,7 @@ static BOOL gAppStateTrackerIdle;
                                         name:NSStringFromSelector(_cmd)];
   [_threadExecutor drainUntilIdle];
 
-  XCTAssertTrue([[GREYAppStateTracker sharedInstance] isIdle]);
+  XCTAssertTrue([[GREYAppStateTracker sharedInstance] isIdleNow]);
 }
 
 - (void)testTimeoutWithDrainUntilIdleWithTimeout {
@@ -366,14 +368,14 @@ static BOOL gAppStateTrackerIdle;
 }
 
 - (void)testMainNSOperationQueueIsMonitoredByDefault {
-  [GREYUIThreadExecutor sharedInstance].shouldSkipMonitoringDefaultIdlingResourcesForTesting = NO;
+  [_threadExecutor drainUntilIdle];
   XCTAssertTrue([_threadExecutor grey_areAllResourcesIdle]);
   [[NSOperationQueue mainQueue] addOperationWithBlock:^{}];
   XCTAssertFalse([_threadExecutor grey_areAllResourcesIdle]);
 }
 
 - (void)testMainDispatchQueueIsMonitoredByDefault {
-  [GREYUIThreadExecutor sharedInstance].shouldSkipMonitoringDefaultIdlingResourcesForTesting = NO;
+  [_threadExecutor drainUntilIdle];
   XCTAssertTrue([_threadExecutor grey_areAllResourcesIdle]);
   dispatch_async(dispatch_get_main_queue(), ^{});
   XCTAssertFalse([_threadExecutor grey_areAllResourcesIdle]);
@@ -400,8 +402,12 @@ static BOOL gAppStateTrackerIdle;
                                                                           block:^{}
                                                                           error:&error];
   XCTAssertTrue(timeout);
-  XCTAssertGreaterThan([error.localizedDescription rangeOfString:@"Test Idling Resource"].length,
-                       0ul);
+  NSString *errorSubstring = @"Test Idling Resource";
+  BOOL errorMatched = [error.description rangeOfString:@"Test Idling Resource"].length > 0;
+  XCTAssertTrue(errorMatched,
+                @"Reason '%@' does not contain substring '%@'",
+                error.description,
+                errorSubstring);
 }
 
 @end

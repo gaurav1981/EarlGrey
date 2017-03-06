@@ -16,19 +16,12 @@
 
 #import "Additions/XCTestCase+GREYAdditions.h"
 
-#import <objc/runtime.h>
+#include <objc/runtime.h>
 
-#import "Common/GREYPrivate.h"
 #import "Common/GREYSwizzler.h"
+#import "Common/GREYTestCaseInvocation.h"
+#import "Core/GREYAutomationSetup.h"
 #import "Exception/GREYFrameworkException.h"
-#import "Synchronization/GREYAppStateTracker.h"
-#import "Synchronization/GREYUIThreadExecutor.h"
-
-/**
- *  The time in seconds beyond which if app remains busy, the App state from GREYAppStateTracker
- *  will be forced clean.
- */
-static const CFTimeInterval kIdleTimeoutSeconds = 5;
 
 /**
  *  Current XCTestCase being executed or @c nil if outside the context of a running test.
@@ -36,33 +29,9 @@ static const CFTimeInterval kIdleTimeoutSeconds = 5;
 static XCTestCase *gCurrentExecutingTestCase;
 
 /**
- *  Object-association key to indicate whether setup and teardown have been swizzled.
- */
-static const void *const kSetupTearDownSwizzedKey = &kSetupTearDownSwizzedKey;
-
-/**
- *  Object-association key for the localized test outputs for a test case.
- */
-static const void *const kLocalizedTestOutputsDirKey = &kLocalizedTestOutputsDirKey;
-
-/**
- *  Object-association key for the status of a test case.
- */
-static const void *const kTestCaseStatus = &kTestCaseStatus;
-
-/**
  *  Name of the exception that's thrown to interrupt current test execution.
  */
 static NSString *const kInternalTestInterruptException = @"EarlGreyInternalTestInterruptException";
-
-/**
- *  Enumeration with the possible statuses of a XCTestCase.
- */
-typedef NS_ENUM(NSUInteger, GREYXCTestCaseStatus) {
-  kGREYXCTestCaseStatusUnknown = 0,
-  kGREYXCTestCaseStatusPassed,
-  kGREYXCTestCaseStatusFailed,
-};
 
 // Extern constants.
 NSString *const kGREYXCTestCaseInstanceWillSetUp = @"GREYXCTestCaseInstanceWillSetUp";
@@ -84,29 +53,35 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
                                       withMethod:@selector(grey_invokeTest)];
     NSAssert(swizzleSuccess, @"Cannot swizzle XCTestCase invokeTest");
 
-    void (^tearDownBlock)(NSNotification *note) = ^(NSNotification *note) {
-      // Try to idle for 5 seconds, otherwise cleanup state tracker state forcefully.
-      BOOL idled =
-          [[GREYUIThreadExecutor sharedInstance] drainUntilIdleWithTimeout:kIdleTimeoutSeconds];
-      if (!idled) {
-        XCTestCase *test = note.userInfo[kGREYXCTestCaseNotificationKey];
-        NSLog(@"EarlGrey tried waiting for %.1f seconds for the application to reach an idle "
-              @"state, but it didn't. EarlGrey is now forced to cleanup the state tracker "
-              @"because the test %@ might have caused the UI thread to be in a non-idle state "
-              @"indefinitely", kIdleTimeoutSeconds, test.name);
-        [[GREYAppStateTracker sharedInstance] grey_clearState];
-      }
-    };
-
-    [[NSNotificationCenter defaultCenter] addObserverForName:kGREYXCTestCaseInstanceDidTearDown
-                                                      object:nil
-                                                       queue:nil
-                                                  usingBlock:tearDownBlock];
+    SEL recordFailSEL = @selector(recordFailureWithDescription:inFile:atLine:expected:);
+    SEL grey_recordFailSEL = @selector(grey_recordFailureWithDescription:inFile:atLine:expected:);
+    swizzleSuccess = [swizzler swizzleClass:self
+                      replaceInstanceMethod:recordFailSEL
+                                 withMethod:grey_recordFailSEL];
+    NSAssert(swizzleSuccess, @"Cannot swizzle XCTestCase "
+                             @"recordFailureWithDescription:inFile:atLine:expected:");
+#if TARGET_OS_SIMULATOR
+    // Simulator needs accessibility to be enabled before main is called.
+    [[GREYAutomationSetup sharedInstance] prepare];
+#endif
   }
 }
 
 + (XCTestCase *)grey_currentTestCase {
   return gCurrentExecutingTestCase;
+}
+
+- (void)grey_recordFailureWithDescription:(NSString *)description
+                                   inFile:(NSString *)filePath
+                                   atLine:(NSUInteger)lineNumber
+                                 expected:(BOOL)expected {
+  [self grey_setStatus:kGREYXCTestCaseStatusFailed];
+  INVOKE_ORIGINAL_IMP4(void,
+                       @selector(grey_recordFailureWithDescription:inFile:atLine:expected:),
+                       description,
+                       filePath,
+                       lineNumber,
+                       expected);
 }
 
 - (NSString *)grey_testMethodName {
@@ -132,15 +107,19 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
   return NSStringFromClass([self class]);
 }
 
+- (GREYXCTestCaseStatus)grey_status {
+  id status = objc_getAssociatedObject(self, @selector(grey_status));
+  return (GREYXCTestCaseStatus)[status unsignedIntegerValue];
+}
+
 - (NSString *)grey_localizedTestOutputsDirectory {
-  NSString *localizedTestOutputsDir = objc_getAssociatedObject(self, kLocalizedTestOutputsDirKey);
+  NSString *localizedTestOutputsDir =
+      objc_getAssociatedObject(self, @selector(grey_localizedTestOutputsDirectory));
 
   if (localizedTestOutputsDir == nil) {
     NSString *testClassName = [self grey_testClassName];
     NSString *testMethodName = [self grey_testMethodName];
-
-    NSAssert(testMethodName, @"There's no current test method for the current test case: %@",
-             [XCTestCase grey_currentTestCase]);
+    NSAssert(testMethodName, @"There's no current test method for the current test case: %@", self);
 
     NSArray *documentPaths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,
                                                                  NSUserDomainMask,
@@ -158,15 +137,21 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
     localizedTestOutputsDir = [testSpecificOutputsDir stringByStandardizingPath];
 
     objc_setAssociatedObject(self,
-                             kLocalizedTestOutputsDirKey,
+                             @selector(grey_localizedTestOutputsDirectory),
                              localizedTestOutputsDir,
-                             OBJC_ASSOCIATION_RETAIN);
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
 
   return localizedTestOutputsDir;
 }
 
-- (void)grey_interruptExecution {
+- (void)grey_markAsFailedAtLine:(NSUInteger)line
+                         inFile:(NSString *)file
+                    description:(NSString *)description {
+  self.continueAfterFailure = NO;
+  [self recordFailureWithDescription:description inFile:file atLine:line expected:NO];
+  // If the test fails outside of the main thread in a nested runloop it will not be interrupted
+  // until it's back in the outer most runloop. Raise an exception to interrupt the test immediately
   [[GREYFrameworkException exceptionWithName:kInternalTestInterruptException
                                       reason:@"Immediately halt execution of testcase"] raise];
 }
@@ -174,15 +159,25 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
 #pragma mark - Private
 
 - (BOOL)grey_isSwizzled {
-  return [objc_getAssociatedObject([self class], kSetupTearDownSwizzedKey) boolValue];
+  return [objc_getAssociatedObject([self class], @selector(grey_isSwizzled)) boolValue];
 }
 
 - (void)grey_markSwizzled {
-  objc_setAssociatedObject([self class], kSetupTearDownSwizzedKey, @(YES), OBJC_ASSOCIATION_RETAIN);
+  objc_setAssociatedObject([self class],
+                           @selector(grey_isSwizzled),
+                           @(YES),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (void)grey_invokeTest {
   @autoreleasepool {
+#if !(TARGET_OS_SIMULATOR)
+    // Enabling accessibility on device must be done after XCTest has been loaded.
+    static dispatch_once_t prepareForAutomation;
+    dispatch_once(&prepareForAutomation, ^{
+      [[GREYAutomationSetup sharedInstance] prepare];
+    });
+#endif
     if (![self grey_isSwizzled]) {
       GREYSwizzler *swizzler = [[GREYSwizzler alloc] init];
       Class selfClass = [self class];
@@ -203,36 +198,17 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
                  andReplaceWithInstanceMethod:@selector(tearDown)];
       NSAssert(swizzleSuccess, @"Cannot swizzle %@ tearDown", NSStringFromClass(selfClass));
       [self grey_markSwizzled];
-
-      // Swizzle recordFailureWithDescription:inFile:atLine:expected: to detect failures that may
-      // not throw exceptions.
-      SEL recordFailureSelector =
-          @selector(recordFailureWithDescription:inFile:atLine:expected:);
-      SEL ituRecordFailureSelector =
-          @selector(grey_recordFailureWithDescription:inFile:atLine:expected:);
-      IMP ituRecordFailureIMP = [self methodForSelector:ituRecordFailureSelector];
-
-      swizzleSuccess = [swizzler swizzleClass:selfClass
-                            addInstanceMethod:ituRecordFailureSelector
-                           withImplementation:ituRecordFailureIMP
-                 andReplaceWithInstanceMethod:recordFailureSelector];
-      NSAssert(swizzleSuccess, @"Cannot swizzle %@ %@", NSStringFromSelector(recordFailureSelector),
-               NSStringFromClass(selfClass));
-
-      [self grey_markSwizzled];
     }
+
+    // Change invocation type to GREYTestCaseInvocation to set grey_status to failed if the test
+    // method throws an exception. This ensure grey_status is accurate in the test case teardown.
+    Class originalInvocationClass =
+        object_setClass(self.invocation, [GREYTestCaseInvocation class]);
 
     @try {
       gCurrentExecutingTestCase = self;
       [self grey_setStatus:kGREYXCTestCaseStatusUnknown];
 
-      // We create a new, empty, outputs directory for the test method prior to its invocation.
-      NSError *error;
-      BOOL success =
-          [self grey_createDirRemovingExistingDir:[self grey_localizedTestOutputsDirectory]
-                                            error:&error];
-
-      NSAssert(success, @"Failed to create localized outputs directory. Cause: %@", error);
       INVOKE_ORIGINAL_IMP(void, @selector(grey_invokeTest));
 
       // The test may have been marked as failed if a failure was recorded with the
@@ -241,10 +217,10 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
       if ([self grey_status] != kGREYXCTestCaseStatusFailed) {
         [self grey_setStatus:kGREYXCTestCaseStatusPassed];
       }
-    } @catch(NSException *exception) {
+    } @catch (NSException *exception) {
       [self grey_setStatus:kGREYXCTestCaseStatusFailed];
       if (![exception.name isEqualToString:kInternalTestInterruptException]) {
-        [exception raise];
+        @throw;
       }
     } @finally {
       switch ([self grey_status]) {
@@ -255,9 +231,14 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
           [self grey_sendNotification:kGREYXCTestCaseInstanceDidPass];
           break;
         case kGREYXCTestCaseStatusUnknown:
-          NSAssert(NO, @"Test has finished with unknown status.");
+          self.continueAfterFailure = YES;
+          [self recordFailureWithDescription:@"Test has finished with unknown status."
+                                      inFile:@__FILE__
+                                      atLine:__LINE__
+                                    expected:NO];
           break;
       }
+      object_setClass(self.invocation, originalInvocationClass);
       [self grey_sendNotification:kGREYXCTestCaseInstanceDidFinish];
       // We only reset the current test case after all possible notifications have been sent.
       gCurrentExecutingTestCase = nil;
@@ -278,7 +259,7 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
 }
 
 /**
- *  A swizzled implementation for XCTestCase::setUp.
+ *  A swizzled implementation for XCTestCase::tearDown.
  *
  *  @remark These methods need to be added to each instance of XCTestCase because we don't expect
  *          tests to invoke <tt> [super tearDown] </tt>.
@@ -302,81 +283,13 @@ NSString *const kGREYXCTestCaseNotificationKey = @"GREYXCTestCaseNotificationKey
                                                     userInfo:userInfo];
 }
 
-/**
- *  Changes the test status when a failure is recorded so we're able to send a failure notification
- *  if for some reason the test fails without throwing an exception.
- *
- *  @param description Description of the failure.
- *  @param filePath    Path to the file where the failure has occured.
- *  @param lineNumber  Line number to the file at @c filePath where the failure has occured.
- *  @param expected    A @c BOOL indicating if the failure was actually expected.
- */
-- (void)grey_recordFailureWithDescription:(NSString *)description
-                                   inFile:(NSString *)filePath
-                                   atLine:(NSUInteger)lineNumber
-                                 expected:(BOOL)expected {
-  [self grey_setStatus:kGREYXCTestCaseStatusFailed];
-  INVOKE_ORIGINAL_IMP4(void,
-                       @selector(grey_recordFailureWithDescription:inFile:atLine:expected:),
-                       description,
-                       filePath,
-                       lineNumber,
-                       expected);
-}
+#pragma mark - Package Internal
 
-/**
- *  Sets the object-association value for the test status.
- *
- *  @param status The new object-association value for the test status.
- */
 - (void)grey_setStatus:(GREYXCTestCaseStatus)status {
-  objc_setAssociatedObject([self class], kTestCaseStatus, @(status), OBJC_ASSOCIATION_RETAIN);
-}
-
-/**
- *  @return The status of the currently running test.
- */
-- (GREYXCTestCaseStatus)grey_status {
-  id status = objc_getAssociatedObject([self class], kTestCaseStatus);
-  return (GREYXCTestCaseStatus)[status unsignedIntegerValue];
-}
-
-/**
- *  Creates a new directory under the specified @c path. If a directory already exists under the
- *  same path, it will be removed and a new, empty dir with the same name will be created.
- *
- *  @param      path     The path where a new directory is to be created.
- *  @param[out] outError A reference to receive errors that may have occured during the execution of
- *                       this method.
- *
- *  @return @c YES on success, @c NO otherwise.
- */
-- (BOOL)grey_createDirRemovingExistingDir:(NSString *)path error:(NSError **)outError {
-  NSParameterAssert(path);
-  NSParameterAssert(outError);
-
-  NSFileManager *manager = [NSFileManager defaultManager];
-  BOOL isDirectory;
-  if ([manager fileExistsAtPath:path isDirectory:&isDirectory]) {
-    if (!isDirectory) {
-      NSDictionary *errorUserInfo =
-          @{ NSLocalizedDescriptionKey: @"File not deleted as it not a directory." };
-      *outError = [NSError errorWithDomain:NSCocoaErrorDomain
-                                      code:NSFileReadInvalidFileNameError
-                                  userInfo:errorUserInfo];
-      return NO;
-    }
-
-    if (![manager removeItemAtPath:path error:outError]) {
-      return NO;
-    }
-  }
-
-  return [manager createDirectoryAtPath:path
-             withIntermediateDirectories:YES
-                              attributes:nil
-                                   error:outError];
+  objc_setAssociatedObject(self,
+                           @selector(grey_status),
+                           @(status),
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 @end
-

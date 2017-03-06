@@ -16,13 +16,15 @@
 
 #import "Core/GREYKeyboard.h"
 
-#import <objc/runtime.h>
+#include <objc/runtime.h>
 
 #import "Action/GREYTapAction.h"
 #import "Additions/NSError+GREYAdditions.h"
 #import "Assertion/GREYAssertionDefines.h"
 #import "Common/GREYDefines.h"
 #import "Common/GREYExposed.h"
+#import "Common/GREYError.h"
+#import "Common/GREYLogger.h"
 #import "Core/GREYInteraction.h"
 #import "Synchronization/GREYAppStateTracker.h"
 #import "Synchronization/GREYCondition.h"
@@ -34,7 +36,7 @@
 static GREYTapAction *gTapKeyAction;
 
 /**
- *  Flag set to @c YES when is keyboard, @c NO when keyboard is hidden.
+ *  Flag set to @c YES when the keyboard is shown, @c NO when keyboard is hidden.
  */
 static BOOL gIsKeyboardShown = NO;
 
@@ -51,7 +53,7 @@ static NSArray *gShiftKeyLabels;
 /**
  *  Accessibility labels for text modification keys, like shift, delete etc.
  */
-static NSDictionary *modifierKeyIdentifierMapping;
+static NSDictionary *gModifierKeyIdentifierMapping;
 
 /**
  *  A retry time interval in which we re-tap the shift key to ensure
@@ -94,13 +96,11 @@ static NSString *const kReturnKeyIdentifier = @"\n";
     [gAlphabeticKeyplaneCharacters formUnionWithCharacterSet:
         [NSCharacterSet lowercaseLetterCharacterSet]];
 
-    modifierKeyIdentifierMapping = @{
+    gModifierKeyIdentifierMapping = @{
       kSpaceKeyIdentifier : @"space",
       kDeleteKeyIdentifier : @"delete",
       kReturnKeyIdentifier : @"return"
     };
-
-    static void const *const kStateTrackerElementIDKey = &kStateTrackerElementIDKey;
 
     // Hooks to keyboard lifecycle notification.
     NSNotificationCenter *defaultNotificationCenter = [NSNotificationCenter defaultCenter];
@@ -110,7 +110,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                        usingBlock:^(NSNotification *note) {
       NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingKeyboardTransition, keyboardObject);
       objc_setAssociatedObject(keyboardObject,
-                               kStateTrackerElementIDKey,
+                               @selector(grey_keyboardObject),
                                elementID,
                                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }];
@@ -118,7 +118,8 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                            object:nil
                                             queue:nil
                                        usingBlock:^(NSNotification *note) {
-      NSString *elementID = objc_getAssociatedObject(keyboardObject, kStateTrackerElementIDKey);
+      NSString *elementID = objc_getAssociatedObject(keyboardObject,
+                                                     @selector(grey_keyboardObject));
       UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingKeyboardTransition, elementID);
       gIsKeyboardShown = YES;
     }];
@@ -129,7 +130,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
       gIsKeyboardShown = NO;
       NSString *elementID = TRACK_STATE_FOR_ELEMENT(kGREYPendingKeyboardTransition, keyboardObject);
       objc_setAssociatedObject(keyboardObject,
-                               kStateTrackerElementIDKey,
+                               @selector(grey_keyboardObject),
                                elementID,
                                OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }];
@@ -137,26 +138,33 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                            object:nil
                                             queue:nil
                                        usingBlock:^(NSNotification *note) {
-      NSString *elementID = objc_getAssociatedObject(keyboardObject, kStateTrackerElementIDKey);
+      NSString *elementID = objc_getAssociatedObject(keyboardObject,
+                                                     @selector(grey_keyboardObject));
       UNTRACK_STATE_FOR_ELEMENT_WITH_ID(kGREYPendingKeyboardTransition, elementID);
     }];
   }
 }
 
-+ (BOOL)typeString:(NSString *)string error:(__strong NSError **)errorOrNil {
++ (BOOL)typeString:(NSString *)string
+    inFirstResponder:(id)firstResponder
+               error:(__strong NSError **)errorOrNil {
   if ([string length] < 1) {
-    [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                    withDomain:kGREYInteractionErrorDomain
-                                          code:kGREYInteractionActionFailedErrorCode
-                          andDescriptionFormat:@"Failed to type, because the string provided was"
-                                               @" empty."];
+    GREYPopulateErrorOrLog(errorOrNil,
+                           kGREYInteractionErrorDomain,
+                           kGREYInteractionActionFailedErrorCode,
+                           @"Failed to type, because the string provided was empty.");
+
     return NO;
   } else if (!gIsKeyboardShown) {
-    [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                    withDomain:kGREYInteractionErrorDomain
-                                          code:kGREYInteractionActionFailedErrorCode
-                          andDescriptionFormat:@"Failed to type string \"%@\", because keyboard was"
-                                               @" not shown on screen.", string];
+    NSString *description = [NSString stringWithFormat:@"Failed to type string '%@', "
+                                                       @"because keyboard was not shown on screen.",
+                             string];
+
+    GREYPopulateErrorOrLog(errorOrNil,
+                           kGREYInteractionErrorDomain,
+                           kGREYInteractionActionFailedErrorCode,
+                           description);
+
     return NO;
   }
 
@@ -170,7 +178,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
     if (!key) {
       unichar currentCharacter = [characterAsString characterAtIndex:0];
       if ([gAlphabeticKeyplaneCharacters characterIsMember:currentCharacter]) {
-        NSLog(@"Detected an alphabetic key.");
+        GREYLogVerbose(@"Detected an alphabetic key.");
         // Switch to alphabetic keyplane if we are on numbers/symbols keyplane.
         if (![GREYKeyboard grey_isAlphabeticKeyplaneShown]) {
           id moreLettersKey = [GREYKeyboard grey_findKeyForCharacter:@"more, letters"];
@@ -179,7 +187,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                                                    forTypingString:string
                                                                              error:errorOrNil];
           }
-          [GREYKeyboard grey_tapKey:moreLettersKey];
+          [GREYKeyboard grey_tapKey:moreLettersKey error:errorOrNil];
           key = [GREYKeyboard grey_findKeyForCharacter:characterAsString];
         }
         // If key is not on the current keyplane, use shift to switch to the other one.
@@ -188,7 +196,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                                                      withError:errorOrNil];
         }
       } else {
-        NSLog(@"Detected a non-alphabetic key.");
+        GREYLogVerbose(@"Detected a non-alphabetic key.");
         // Switch to numbers/symbols keyplane if we are on alphabetic keyplane.
         if ([GREYKeyboard grey_isAlphabeticKeyplaneShown]) {
           id moreNumbersKey = [GREYKeyboard grey_findKeyForCharacter:@"more, numbers"];
@@ -197,7 +205,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                                                    forTypingString:string
                                                                              error:errorOrNil];
           }
-          [GREYKeyboard grey_tapKey:moreNumbersKey];
+          [GREYKeyboard grey_tapKey:moreNumbersKey error:errorOrNil];
           key = [GREYKeyboard grey_findKeyForCharacter:characterAsString];
         }
         // If key is not on the current keyplane, use shift to switch to the other one.
@@ -217,7 +225,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                                                    forTypingString:string
                                                                              error:errorOrNil];
           }
-          [GREYKeyboard grey_tapKey:moreLettersKey];
+          [GREYKeyboard grey_tapKey:moreLettersKey error:errorOrNil];
           key = [GREYKeyboard grey_findKeyForCharacter:characterAsString];
         }
       }
@@ -228,8 +236,24 @@ static NSString *const kReturnKeyIdentifier = @"\n";
                                                                          error:errorOrNil];
       }
     }
-    // Key was found; this action should always succeed.
-    [GREYKeyboard grey_tapKey:key];
+    // A period key for an email UITextField on iOS9 and above types the email domain (.com, .org)
+    // by default. That is not the desired behavior so check below disables it.
+    BOOL keyboardTypeWasChangedFromEmailType = NO;
+    if (iOS9_OR_ABOVE() &&
+        [characterAsString isEqualToString:@"."] &&
+        [firstResponder respondsToSelector:@selector(keyboardType)] &&
+        [firstResponder keyboardType] == UIKeyboardTypeEmailAddress) {
+      [firstResponder setKeyboardType:UIKeyboardTypeDefault];
+      keyboardTypeWasChangedFromEmailType = YES;
+    }
+
+    // Keyboard was found; this action should always succeed.
+    [GREYKeyboard grey_tapKey:key error:errorOrNil];
+
+    if (keyboardTypeWasChangedFromEmailType) {
+      // Set the keyboard type back to the Email Type.
+      [firstResponder setKeyboardType:UIKeyboardTypeEmailAddress];
+    }
   }
   return success;
 }
@@ -245,19 +269,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
   return [keyboardIsShownCondition waitWithTimeout:kKeyboardWillAppearOrDisappearTimeout];
 }
 
-+ (BOOL)waitForKeyboardToDisappear {
-  if (!gIsKeyboardShown) {
-    return YES;
-  }
-  GREYCondition *keyboardIsNotShownCondition =
-      [[GREYCondition alloc] initWithName:@"Keyboard is will disappear." block:^BOOL {
-        return !gIsKeyboardShown;
-      }];
-  return [keyboardIsNotShownCondition waitWithTimeout:kKeyboardWillAppearOrDisappearTimeout];
-}
-
-
-#pragma mark - Private Methods
+#pragma mark - Private
 
 /**
  *  A utility method to continuously toggle the shift key on an alphabet keyplane until
@@ -282,15 +294,11 @@ static NSString *const kReturnKeyIdentifier = @"\n";
 
   BOOL didTimeOut = ![shiftToggleSucceded waitWithTimeout:kMaxShiftKeyToggleDuration];
   if (didTimeOut) {
-    [NSError grey_logOrSetOutReferenceIfNonNil:&error
-                                    withDomain:kGREYInteractionErrorDomain
-                                          code:kGREYInteractionTimeoutErrorCode
-                          andDescriptionFormat:@"GREYKeyboard : Shift Key toggling timed out "
-                                               @"since key with correct case wasn't found"];
-  }
-
-  if (error && errorOrNil) {
-    *errorOrNil = error;
+    GREYPopulateErrorOrLog(errorOrNil,
+                           kGREYInteractionErrorDomain,
+                           kGREYInteractionTimeoutErrorCode,
+                           @"GREYKeyboard : Shift Key toggling timed out "
+                           @"since key with correct case wasn't found");
   }
 
   return key;
@@ -306,7 +314,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
  *  @return YES if the shift toggle succeeded, else NO.
  */
 + (BOOL)grey_toggleShiftKeyWithError:(__strong NSError **)errorOrNil {
-  NSLog(@"Tapping on Shift key.");
+  GREYLogVerbose(@"Tapping on Shift key.");
   UIKeyboardImpl *keyboard = [GREYKeyboard grey_keyboardObject];
   // Clear time Shift key was pressed last to make sure the keyboard will not ignore this event.
   // If we do not reset this value, we would need to wait at least 0.35 seconds after toggling
@@ -318,15 +326,14 @@ static NSString *const kReturnKeyIdentifier = @"\n";
     id key = [GREYKeyboard grey_findKeyForCharacter:shiftKeyLabel];
     if (key) {
       // Shift key was found; this action should always succeed.
-      [GREYKeyboard grey_tapKey:key];
+      [GREYKeyboard grey_tapKey:key error:errorOrNil];
       return YES;
     }
   }
-  [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                  withDomain:kGREYInteractionErrorDomain
-                                        code:kGREYInteractionActionFailedErrorCode
-                        andDescriptionFormat:@"GREYKeyboard: No known SHIFT key was found in the"
-                                             @" hierarchy."];
+  GREYPopulateErrorOrLog(errorOrNil,
+                         kGREYInteractionErrorDomain,
+                         kGREYInteractionActionFailedErrorCode,
+                         @"GREYKeyboard: No known SHIFT key was found in the hierarchy.");
   return NO;
 }
 
@@ -343,7 +350,7 @@ static NSString *const kReturnKeyIdentifier = @"\n";
   NSString *accessibilityLabel = character;
   // If the key is a modifier key then we need to do a case-insensitive comparison and change the
   // accessibility label to the corresponding modifier key accessibility label.
-  NSString *modifierKeyIdentifier = [modifierKeyIdentifierMapping objectForKey:character];
+  NSString *modifierKeyIdentifier = [gModifierKeyIdentifierMapping objectForKey:character];
   if (modifierKeyIdentifier) {
     // Check for the return key since we can have a different accessibility label
     // depending upon the keyboard.
@@ -419,13 +426,15 @@ static NSString *const kReturnKeyIdentifier = @"\n";
 /**
  *  Utility method to tap on a key on the keyboard.
  *
- *  @param key The key to be tapped.
+ *  @param      key           The key to be tapped.
+ *  *param[out] errorOrNil    The error to be populated. If this is @c nil,
+ *                            then an error message is logged.
  */
-+ (void)grey_tapKey:(id)key {
++ (void)grey_tapKey:(id)key error:(__strong NSError **)errorOrNil {
   NSParameterAssert(key);
 
   NSLog(@"Tapping on key: %@.", [key accessibilityLabel]);
-  [gTapKeyAction perform:key error:nil];
+  [gTapKeyAction perform:key error:errorOrNil];
   [[[GREYKeyboard grey_keyboardObject] taskQueue] waitUntilAllTasksAreFinished];
   [[GREYUIThreadExecutor sharedInstance] drainOnce];
 }
@@ -444,12 +453,16 @@ static NSString *const kReturnKeyIdentifier = @"\n";
 + (BOOL)grey_setErrorForkeyNotFoundWithAccessibilityLabel:(NSString *)accessibilityLabel
                                           forTypingString:(NSString *)string
                                                     error:(__strong NSError **)errorOrNil {
-  [NSError grey_logOrSetOutReferenceIfNonNil:errorOrNil
-                                  withDomain:kGREYInteractionErrorDomain
-                                        code:kGREYInteractionElementNotFoundErrorCode
-                        andDescriptionFormat:@"Failed to type string \"%@\", because "
-                                             @"key '%@' could not be found on the keyboard.",
-                                             string, accessibilityLabel];
+  NSString *description = [NSString stringWithFormat:@"Failed to type string '%@', "
+                                                     @"because key [K] could not be found "
+                                                     @"on the keyboard.",
+                                                     string];
+  NSDictionary *glossary = @{ @"K" : [accessibilityLabel description] };
+  GREYPopulateErrorNotedOrLog(errorOrNil,
+                              kGREYInteractionErrorDomain,
+                              kGREYInteractionElementNotFoundErrorCode,
+                              description,
+                              glossary);
   return NO;
 }
 

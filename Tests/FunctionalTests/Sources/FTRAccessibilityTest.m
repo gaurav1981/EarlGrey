@@ -21,12 +21,18 @@
 @interface FTRAccessibilityTest : FTRBaseIntegrationTest
 @end
 
-// TODO: Test edge cases for uiaccessibilityelement visibility as well.
+// TODO: Test edge cases for UI Accessibility Element visibility as well.
 @implementation FTRAccessibilityTest
 
 - (void)setUp {
   [super setUp];
   [self openTestViewNamed:@"Accessibility Views"];
+}
+
+// Test for https://github.com/google/EarlGrey/issues/108
+- (void)testAccessibilityMessageViewController {
+  [[EarlGrey selectElementWithMatcher:grey_buttonTitle(@"Open MVC")] performAction:grey_tap()];
+  [[[EarlGrey selectElementWithMatcher:grey_anything()] atIndex:0] assertWithMatcher:grey_notNil()];
 }
 
 - (void)testAccessibilityValues {
@@ -116,10 +122,10 @@
     // Square element rect is {50, 150, 100, 100}
     [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"SquareElementLabel")]
         performAction:grey_tapAtPoint(CGPointMake(-51, -151))];
-    XCTFail(@"Should throw an exception");
+    GREYFail(@"Should throw an exception");
   } @catch (NSException *exception) {
-    NSRange exceptionRange = [[exception reason] rangeOfString:@"Action 'Tap' failed."];
-    XCTAssertNotEqual(exceptionRange.location, (NSUInteger)NSNotFound);
+    NSRange exceptionRange = [[exception reason] rangeOfString:@"\"Action Name\" : \"Tap\""];
+    GREYAssertNotEqual(exceptionRange.location, NSNotFound, @"should not be equal");
   }
 }
 

@@ -31,6 +31,12 @@
 + (id<GREYAction>)actionForMultipleTapsWithCount:(NSUInteger)count;
 
 /**
+ *  @return A GREYAction that performs multiple taps of a specified @c count at a specified
+ *          @c point.
+ */
++ (id<GREYAction>)actionForMultipleTapsWithCount:(NSUInteger)count atPoint:(CGPoint)point;
+
+/**
  *  Returns an action that holds down finger for 1.0 second (@c kGREYLongPressDefaultDuration) to
  *  simulate a long press.
  *
@@ -70,9 +76,53 @@
 + (id<GREYAction>)actionForScrollInDirection:(GREYDirection)direction amount:(CGFloat)amount;
 
 /**
+ *  Returns a scroll action that scrolls in a @c direction for an @c amount of points starting from
+ *  the given start point specified as percentages. @c xOriginStartPercentage is the x start
+ *  position as a percentage of the total width of the scrollable visible area,
+ *  @c yOriginStartPercentage is the y start position as a percentage of the total height of the
+ *  scrollable visible area. @c xOriginStartPercentage and @c yOriginStartPercentage must be between
+ *  0 and 1, exclusive.
+ *
+ *  @param direction              The direction of the scroll.
+ *  @param amount                 The amount scroll in points to inject.
+ *  @param xOriginStartPercentage X coordinate of the start point specified as a percentage (0, 1)
+ *                                exclusive, of the total width of the scrollable visible area.
+ *  @param yOriginStartPercentage Y coordinate of the start point specified as a percentage (0, 1)
+ *                                exclusive, of the total height of the scrollable visible area.
+ *
+ *  @return A GREYAction that scrolls a scroll view in a given @c direction for a given @c amount
+ *          starting from the given start points.
+ */
++ (id<GREYAction>)actionForScrollInDirection:(GREYDirection)direction
+                                      amount:(CGFloat)amount
+                      xOriginStartPercentage:(CGFloat)xOriginStartPercentage
+                      yOriginStartPercentage:(CGFloat)yOriginStartPercentage;
+
+/**
  *  @return A GREYAction that scrolls to the given content @c edge of a scroll view.
  */
 + (id<GREYAction>)actionForScrollToContentEdge:(GREYContentEdge)edge;
+
+/**
+ *  A GREYAction that scrolls to the given content @c edge of a scroll view with the scroll action
+ *  starting from the given start point specified as percentages. @c xOriginStartPercentage is the x
+ *  start position as a percentage of the total width of the scrollable visible area,
+ *  @c yOriginStartPercentage is the y start position as a percentage of the total height of the
+ *  scrollable visible area. @c xOriginStartPercentage and @c yOriginStartPercentage must be between
+ *  0 and 1, exclusive.
+ *
+ *  @param edge                   The edge towards which the scrolling is to take place.
+ *  @param xOriginStartPercentage X coordinate of the start point specified as a percentage (0, 1)
+ *                                exclusive, of the total width of the scrollable visible area.
+ *  @param yOriginStartPercentage Y coordinate of the start point specified as a percentage (0, 1)
+ *                                exclusive, of the total height of the scrollable visible area.
+ *
+ *  @return A GREYAction that scrolls to the given content @c edge of a scroll view with the scroll
+ *          action starting from the given start point.
+ */
++ (id<GREYAction>)actionForScrollToContentEdge:(GREYContentEdge)edge
+                        xOriginStartPercentage:(CGFloat)xOriginStartPercentage
+                        yOriginStartPercentage:(CGFloat)yOriginStartPercentage;
 
 /**
  *  Returns an action that fast swipes through the whole view. The start point of the swipe is
@@ -96,7 +146,7 @@
 
 /**
  *  Returns an action that swipes through the view quickly in the given @c direction from a specific
- *  origin. The duration here is specified by @c kGREYSwipeFastDuration in GREYConstants.
+ *  origin.
  *
  *  @param direction              The direction of the swipe.
  *  @param xOriginStartPercentage the x start position as a percentage of the total width
@@ -112,8 +162,8 @@
                          yOriginStartPercentage:(CGFloat)yOriginStartPercentage;
 
 /**
- *  Returns an action that swipes through the view quickly in the given @c direction from a specific
- *  origin. The duration here is specified by @c kGREYSwipeSlowDuration in GREYConstants.
+ *  Returns an action that swipes through the view quickly in the given @c direction from a
+ *  specific origin.
  *
  *  @param direction              The direction of the swipe.
  *  @param xOriginStartPercentage the x start position as a percentage of the total width
@@ -129,15 +179,41 @@
                          yOriginStartPercentage:(CGFloat)yOriginStartPercentage;
 
 /**
- *  Returns an action that attempts to move slider to within 1.0e-6f values of @c value.
+ * Returns an action that pinches whole view quickly in the specified @c direction and @c angle.
  *
- *  @param value The value to which the slider should be moved. If this is not attainable after a
- *               reasonable number of attempts (currently 10) we assume that the @c value is
- *               unattainable for a user (it is probably the case this value resides between two
- *               pixels). In this case, the slider will end up at a user attainable value
- *               that is closest to @c value.
+ * @param  pinchDirection The direction of the pinch action.
+ * @param  angle          The angle of the pinch action in radians.
+ *                        Use @c kGREYPinchAngleDefault for the default angle (currently set to
+ *                        30 degrees).
  *
- *  @return A GREYAction that moves a slider to a given @c value.
+ * @return A GREYAction that performs a fast pinch on the whole view in the specified @c direction.
+ */
++ (id<GREYAction>)actionForPinchFastInDirection:(GREYPinchDirection)pinchDirection
+                                      withAngle:(double)angle;
+
+/**
+ * Returns an action that pinches whole view slowly in the specified @c direction and @c angle.
+ *
+ * @param  pinchDirection The direction of the pinch action.
+ * @param  angle          The angle of the pinch action in radians.
+ *                        Use @c kGREYPinchAngleDefault for the default angle (currently set to
+ *                        30 degrees).
+ *
+ * @return A GREYAction that performs a slow pinch on the whole view in the specified @c direction.
+ */
++ (id<GREYAction>)actionForPinchSlowInDirection:(GREYPinchDirection)pinchDirection
+                                      withAngle:(double)angle;
+
+/**
+ * Returns an action that attempts to move slider to within 1.0e-6f values of @c value.
+ *
+ * @param value The value to which the slider should be moved. If this is not attainable after a
+ *              reasonable number of attempts (currently 10) we assume that the @c value is
+ *              unattainable for a user (it is probably the case this value resides between two
+ *              pixels). In this case, the slider will end up at a user attainable value
+ *              that is closest to @c value.
+ *
+ * @return A GREYAction that moves a slider to a given @c value.
  */
 + (id<GREYAction>)actionForMoveSliderToValue:(float)value;
 
@@ -172,13 +248,23 @@
 /**
  *  Returns an action that uses the iOS keyboard to input a string.
  *
- *  @param text The text to be typed. Backspace is supported by using "\b" in the string.
- *              Return key is supported with "\n".
- *              For Example: @"Helpo\b\bloWorld" will type HelloWorld.
+ *  @param text The text to be typed. For Objective-C, backspace is supported by using "\b" in the
+ *              string and "\u{8}" in Swift strings. Return key is supported with "\n".
+ *              For Example: @"Helpo\b\bloWorld" will type HelloWorld in Objective-C.
+ *                           "Helpo\u{8}\u{8}loWorld" will type HelloWorld in Swift.
  *
  *  @return A GREYAction to type a specific text string in a text field.
  */
 + (id<GREYAction>)actionForTypeText:(NSString *)text;
+
+/**
+ *  Returns an action that sets text on a UITextField or webview input directly.
+ *
+ *  @param text The text to be typed.
+ *
+ *  @return A GREYAction to type a specific text string in a text field.
+ */
++ (id<GREYAction>)actionForReplaceText:(NSString *)text;
 
 /**
  *  @return A GREYAction that clears a text field by injecting back-spaces.
@@ -218,8 +304,8 @@
  *  Returns an action that executes JavaScript against a UIWebView and sets the return value to
  *  @c outResult if provided.
  *
- *  @param js     The Javascript code to be executed.
- *  @param output The result of the code execution.
+ *  @param js        The Javascript code to be executed.
+ *  @param outResult The result of the code execution.
  *
  *  @return A GREYAction that executes JavaScript code against a UIWebView.
  */
@@ -235,9 +321,17 @@
  */
 + (id<GREYAction>)actionForSnapshot:(out __strong UIImage **)outImage;
 
+@end
+
 #if !(GREY_DISABLE_SHORTHAND)
 /** Shorthand macro for GREYActions::actionForMultipleTapsWithCount: with count @c 2. */
 GREY_EXPORT id<GREYAction> grey_doubleTap(void);
+
+/**
+ *  Shorthand macro for
+ *  GREYActions::actionForMultipleTapsWithCount: with count @c 2 and @c point.
+ */
+GREY_EXPORT id<GREYAction> grey_doubleTapAtPoint(CGPoint point);
 
 /** Shorthand macro for GREYActions::actionForMultipleTapsWithCount:. */
 GREY_EXPORT id<GREYAction> grey_multipleTapsWithCount(NSUInteger count);
@@ -255,8 +349,25 @@ GREY_EXPORT id<GREYAction> grey_longPressAtPointWithDuration(CGPoint point,
 /** Shorthand macro for GREYActions::actionForScrollInDirection:amount:. */
 GREY_EXPORT id<GREYAction> grey_scrollInDirection(GREYDirection direction, CGFloat amount);
 
+/**
+ *  Shorthand macro for
+ *  GREYActions::actionForScrollInDirection:amount:xOriginStartPercentage:yOriginStartPercentage:.
+ */
+GREY_EXPORT id<GREYAction> grey_scrollInDirectionWithStartPoint(GREYDirection direction,
+                                                                CGFloat amount,
+                                                                CGFloat xOriginStartPercentage,
+                                                                CGFloat yOriginStartPercentage);
+
 /** Shorthand macro for GREYActions::actionForScrollToContentEdge:. */
 GREY_EXPORT id<GREYAction> grey_scrollToContentEdge(GREYContentEdge edge);
+
+/**
+ *  Shorthand macro for
+ *  GREYActions::actionForScrollToContentEdge:xOriginStartPercentage:yOriginStartPercentage:.
+ */
+GREY_EXPORT id<GREYAction> grey_scrollToContentEdgeWithStartPoint(GREYContentEdge edge,
+                                                                  CGFloat xOriginStartPercentage,
+                                                                  CGFloat yOriginStartPercentage);
 
 /** Shorthand macro for GREYActions::actionForSwipeFastInDirection:. */
 GREY_EXPORT id<GREYAction> grey_swipeFastInDirection(GREYDirection direction);
@@ -269,16 +380,24 @@ GREY_EXPORT id<GREYAction> grey_swipeSlowInDirection(GREYDirection direction);
  *  GREYActions::actionForSwipeFastInDirection:xOriginStartPercentage:yOriginStartPercentage:.
  */
 GREY_EXPORT id<GREYAction> grey_swipeFastInDirectionWithStartPoint(GREYDirection direction,
-                                                                   CGFloat xStartPoint,
-                                                                   CGFloat yStartPoint);
+                                                                   CGFloat xOriginStartPercentage,
+                                                                   CGFloat yOriginStartPercentage);
 
 /**
  *  Shorthand macro for
  *  GREYActions::actionForSwipeSlowInDirection:xOriginStartPercentage:yOriginStartPercentage:.
  */
 GREY_EXPORT id<GREYAction> grey_swipeSlowInDirectionWithStartPoint(GREYDirection direction,
-                                                                   CGFloat xStartPoint,
-                                                                   CGFloat yStartPoint);
+                                                                   CGFloat xOriginStartPercentage,
+                                                                   CGFloat yOriginStartPercentage);
+
+/** Shorthand macro for GREYActions::actionForPinchFastInDirection:pinchDirection:angle:. */
+GREY_EXPORT id<GREYAction> grey_pinchFastInDirectionAndAngle(GREYPinchDirection pinchDirection,
+                                                             double angle);
+
+/** Shorthand macro for GREYActions::actionForPinchSlowInDirection:pinchDirection:angle:. */
+GREY_EXPORT id<GREYAction> grey_pinchSlowInDirectionAndAngle(GREYPinchDirection pinchDirection,
+                                                             double angle);
 
 /** Shorthand macro for GREYActions::actionForMoveSliderToValue:. */
 GREY_EXPORT id<GREYAction> grey_moveSliderToValue(float value);
@@ -292,8 +411,11 @@ GREY_EXPORT id<GREYAction> grey_tap(void);
 /** Shorthand macro for GREYActions::actionForTapAtPoint:. */
 GREY_EXPORT id<GREYAction> grey_tapAtPoint(CGPoint point);
 
-/** Shorthand macro for GREYActions::actionForType:. */
+/** Shorthand macro for GREYActions::actionForTypeText:. */
 GREY_EXPORT id<GREYAction> grey_typeText(NSString *text);
+
+/** Shorthand macro for GREYActions::actionForReplaceText:. */
+GREY_EXPORT id<GREYAction> grey_replaceText(NSString *text);
 
 /** Shorthand macro for GREYActions::actionForClearText. */
 GREY_EXPORT id<GREYAction> grey_clearText(void);
@@ -314,5 +436,3 @@ GREY_EXPORT id<GREYAction> grey_javaScriptExecution(NSString *js, __strong NSStr
 GREY_EXPORT id<GREYAction> grey_snapshot(__strong UIImage **outImage);
 
 #endif // GREY_DISABLE_SHORTHAND
-
-@end

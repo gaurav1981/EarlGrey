@@ -31,20 +31,26 @@
 }
 
 - (void)testPushAndPopRunLoopModes {
-  XCTAssertNil([[UIApplication sharedApplication] grey_activeRunLoopMode]);
+  GREYAssertNil([[UIApplication sharedApplication] grey_activeRunLoopMode], @"should be nil");
   [[UIApplication sharedApplication] pushRunLoopMode:@"Boo" requester:self];
-  XCTAssertEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Boo");
+  GREYAssertEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Boo",
+                         @"should be equal");
   [[UIApplication sharedApplication] pushRunLoopMode:@"Foo"];
-  XCTAssertEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Foo");
+  GREYAssertEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Foo",
+                         @"should be equal");
   [[UIApplication sharedApplication] popRunLoopMode:@"Foo"];
-  XCTAssertEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Boo");
+  GREYAssertEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Boo",
+                         @"should be equal");
   [[UIApplication sharedApplication] popRunLoopMode:@"Boo" requester:self];
-  XCTAssertNotEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Boo");
-  XCTAssertNotEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Foo");
+  GREYAssertNotEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Boo",
+                            @"should not be equal");
+  GREYAssertNotEqualObjects([[UIApplication sharedApplication] grey_activeRunLoopMode], @"Foo",
+                            @"should not be equal");
 }
 
 - (void)testGREYExecuteSync {
   __block BOOL firstGREYExecuteSyncStarted = NO;
+  __block BOOL secondGREYExecuteSyncStarted = NO;
 
   // Execute on a background thread.
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -54,30 +60,43 @@
       [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
           performAction:grey_tap()];
       id<GREYMatcher> matcher = grey_allOf(grey_kindOfClass([UITextField class]),
-                                         grey_accessibilityLabel(@"Type Something Here"),
-                                         nil);
+                                           grey_accessibilityLabel(@"Type Something Here"),
+                                           nil);
       [[[EarlGrey selectElementWithMatcher:matcher] performAction:grey_tap()]
           performAction:grey_typeText(@"Hello!")];
     });
     grey_execute_sync(^{
+      secondGREYExecuteSyncStarted = YES;
       id<GREYMatcher> matcher = grey_allOf(grey_kindOfClass([UITextField class]),
-                                         grey_accessibilityLabel(@"Type Something Here"),
-                                         nil);
+                                           grey_accessibilityLabel(@"Type Something Here"),
+                                           nil);
       [[EarlGrey selectElementWithMatcher:matcher] assertWithMatcher:grey_text(@"Hello!")];
     });
   });
 
-  // This should wait for grey_execute_sync to start execution on the background thread.
+  // This should wait for the first grey_execute_sync to start execution on the background thread.
+  // It's possible that the last condition check before the timeout will occur at the beginning of
+  // the run loop drain where the execute sync block runs. The run loop spinner will not start more
+  // run loop drains after the timeout. So the timeout must be large enough to allow the entire
+  // execute sync block to run in order to guarantee that we will check the condition after the
+  // execute sync block has run.
   BOOL success = [[GREYCondition conditionWithName:@"Wait for first grey_execute_sync"
                                              block:^BOOL{
     return firstGREYExecuteSyncStarted;
-  }] waitWithTimeout:5.0];
+  }] waitWithTimeout:20.0];
   GREYAssert(success, @"Waiting for first grey_execute_sync to start timed-out");
 
   [[EarlGrey selectElementWithMatcher:grey_allOf(grey_kindOfClass([UITextField class]),
                                                  grey_accessibilityLabel(@"Type Something Here"),
                                                  nil)]
       assertWithMatcher:grey_text(@"Hello!")];
+
+  // This should wait for the second grey_execute_sync to start execution on the background thread.
+  success = [[GREYCondition conditionWithName:@"Wait for first grey_execute_sync"
+                                        block:^BOOL{
+    return secondGREYExecuteSyncStarted;
+  }] waitWithTimeout:5.0];
+  GREYAssert(success, @"Waiting for second grey_execute_sync to start timed-out");
 }
 
 - (void)testGREYExecuteAsyncOnMainThread {
@@ -90,7 +109,7 @@
         performAction:grey_tapAtPoint(CGPointMake(0, 0))]
         performAction:grey_typeText(@"Hello!")];
   });
-  // This should wait for the above async to finish.
+  // This should wait for the above async task to finish.
   [[EarlGrey selectElementWithMatcher:grey_allOf(grey_kindOfClass([UITextField class]),
                                                  grey_accessibilityLabel(@"Type Something Here"),
                                                  nil)]
@@ -98,12 +117,12 @@
 }
 
 - (void)testGREYExecuteAsyncOnBackgroundThread {
-  __block BOOL GREYExecuteAsyncStarted = NO;
+  __block BOOL executeAsyncStarted = NO;
 
   // Execute on a background thread.
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     grey_execute_async(^{
-      GREYExecuteAsyncStarted = YES;
+      executeAsyncStarted = YES;
       [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
           performAction:grey_tap()];
       id matcher = grey_allOf(grey_kindOfClass([UITextField class]),
@@ -113,11 +132,16 @@
           performAction:grey_typeText(@"Hello!")];
     });
   });
-  // This should wait for grey_execute_async to start execution on the background thread.
+  // This should wait for the first grey_execute_sync to start execution on the background thread.
+  // It's possible that the last condition check before the timeout will occur at the beginning of
+  // the run loop drain where the execute sync block runs. The run loop spinner will not start more
+  // run loop drains after the timeout. So the timeout must be large enough to allow the entire
+  // execute sync block to run in order to guarantee that we will check the condition after the
+  // execute sync block has run.
   BOOL success = [[GREYCondition conditionWithName:@"Wait for background grey_execute_async"
                                              block:^BOOL{
-    return GREYExecuteAsyncStarted;
-  }] waitWithTimeout:5.0];
+    return executeAsyncStarted;
+  }] waitWithTimeout:20.0];
   GREYAssert(success, @"Waiting for grey_execute_async to start timed-out");
 
   // This should wait for the above async to finish.

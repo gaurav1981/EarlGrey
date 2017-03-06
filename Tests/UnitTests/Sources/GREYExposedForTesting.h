@@ -17,8 +17,10 @@
 //
 // Exposes methods, classes and globals for Unit Testing.
 //
+#import <EarlGrey/GREYAnalytics.h>
 #import <EarlGrey/GREYAppStateTracker.h>
 #import <EarlGrey/GREYElementHierarchy.h>
+#import <EarlGrey/GREYManagedObjectContextIdlingResource.h>
 #import <EarlGrey/GREYProvider.h>
 #import <EarlGrey/GREYTimedIdlingResource.h>
 #import <EarlGrey/GREYUIThreadExecutor.h>
@@ -33,22 +35,27 @@ extern const NSInteger kGREYScrollDetectionLength;
 - (BOOL)grey_isWebAccessibilityElement;
 @end
 
+@interface GREYAnalytics (GREYExposedForTesting)
+- (void)grey_testCaseInstanceDidTearDown;
+@end
+
 @interface GREYAppStateTracker (GREYExposedForTesting)
 - (GREYAppState)grey_lastKnownStateForElement:(id)element;
 @end
 
-@interface GREYDispatchQueueIdlingResource (EGExposedForTesting)
-+ (instancetype)grey_resourceForCurrentlyTrackedDispatchQueue:(dispatch_queue_t)queue;
+@interface GREYManagedObjectContextIdlingResource (GREYExposedForTesting)
+- (dispatch_queue_t)managedObjectContextDispatchQueue;
 @end
 
-@interface GREYUIThreadExecutor (EGExposedForTesting)
-@property(nonatomic, assign) BOOL shouldSkipMonitoringDefaultIdlingResourcesForTesting;
+@interface GREYUIThreadExecutor (GREYExposedForTesting)
+@property(nonatomic, assign) BOOL forceBusyPolling;
 - (BOOL)grey_areAllResourcesIdle;
-- (void)grey_deregisterAllIdlingResources;
+- (void)grey_resetIdlingResources;
+- (BOOL)grey_isTrackingIdlingResource:(id<GREYIdlingResource>)idlingResource;
 @end
 
 @interface CALayer (GREYExposedForTesting)
-- (NSMutableSet *)pausedAnimationKeys;
+- (NSMutableSet *)grey_pausedAnimationKeys;
 @end
 
 @interface CAAnimation (GREYExposedForTesting)

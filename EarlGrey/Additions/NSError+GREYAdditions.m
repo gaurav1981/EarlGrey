@@ -16,24 +16,21 @@
 
 #import "Additions/NSError+GREYAdditions.h"
 
+#import "Common/GREYError.h"
+#import "Common/GREYErrorConstants.h"
+
 @implementation NSError (GREYAdditions)
 
-+ (BOOL)grey_logOrSetOutReferenceIfNonNil:(__strong NSError **)outErrorReferenceOrNil
-                               withDomain:(NSString *)domain
-                                     code:(NSInteger)code
-                     andDescriptionFormat:(NSString *)format, ... {
-  va_list args;
-  va_start(args, format);
-  NSString *description = [[NSString alloc] initWithFormat:format arguments:args];
-  va_end(args);
-  if (outErrorReferenceOrNil) {
-    NSDictionary *userInfo = @{ NSLocalizedDescriptionKey : description };
-    *outErrorReferenceOrNil = [NSError errorWithDomain:domain code:code userInfo:userInfo];
-    return YES;
-  } else {
-    NSLog(@"Error (domain: %@, code: %ld): %@", domain, (long)code, description);
-    return NO;
-  }
+- (NSDictionary *)grey_descriptionDictionary {
+  NSMutableDictionary *descriptionObject = [[NSMutableDictionary alloc] init];
+
+  descriptionObject[kErrorDomainKey] = self.domain;
+  descriptionObject[kErrorCodeKey] = [NSString stringWithFormat:@"%ld", (long)self.code];
+  descriptionObject[kErrorDescriptionKey] =  self.localizedDescription;
+  descriptionObject[kErrorFailureReasonKey] = self.localizedFailureReason;
+  descriptionObject[kErrorDetailRecoverySuggestionKey] = self.localizedRecoverySuggestion;
+
+  return descriptionObject;
 }
 
 @end

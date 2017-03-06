@@ -45,15 +45,15 @@
   // TODO: Verify the content of the image as well.
   CGSize expectedSize = CGSizeMake(64, 128);
   CGFloat expectedScale = [UIScreen mainScreen].scale;
-  XCTAssertEqual(expectedSize.width, snapshot.size.width);
-  XCTAssertEqual(expectedSize.height, snapshot.size.height);
-  XCTAssertEqual(expectedScale, snapshot.scale);
+  GREYAssertEqual(expectedSize.width, snapshot.size.width, @"should be equal");
+  GREYAssertEqual(expectedSize.height, snapshot.size.height, @"should be equal");
+  GREYAssertEqual(expectedScale, snapshot.scale, @"should be equal");
 
   NSError *error = nil;
   // Snapshot Accessibility Element with zero height should be an error.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"ElementWithZeroHeight")]
       performAction:grey_snapshot(&snapshot) error:&error];
-  XCTAssertEqualObjects(kGREYInteractionErrorDomain, error.domain);
+  GREYAssertEqualObjects(kGREYInteractionErrorDomain, error.domain, @"should be equal");
 }
 
 - (void)testSnapshotAXElementInLandscapeMode {
@@ -67,20 +67,20 @@
 
   // TODO: Verify the content of the image as well.
   CGSize expectedSize = CGSizeMake(64, 128);
-  if (!iOS8_OR_ABOVE()) {
+  if (!iOS8_0_OR_ABOVE()) {
     // Width and height are interchanged on versions before iOS 8.0
     expectedSize = CGSizeMake(expectedSize.height, expectedSize.width);
   }
   CGFloat expectedScale = [UIScreen mainScreen].scale;
-  XCTAssertEqual(expectedSize.width, snapshot.size.width);
-  XCTAssertEqual(expectedSize.height, snapshot.size.height);
-  XCTAssertEqual(expectedScale, snapshot.scale);
+  GREYAssertEqual(expectedSize.width, snapshot.size.width, @"should be equal");
+  GREYAssertEqual(expectedSize.height, snapshot.size.height, @"should be equal");
+  GREYAssertEqual(expectedScale, snapshot.scale, @"should be equal");
 
   NSError *error = nil;
   // Snapshot Accessibility Element with zero height should be an error.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"ElementWithZeroHeight")]
       performAction:grey_snapshot(&snapshot) error:&error];
-  XCTAssertEqualObjects(kGREYInteractionErrorDomain, error.domain);
+  GREYAssertEqualObjects(kGREYInteractionErrorDomain, error.domain, @"should be equal");
 }
 
 - (void)testTakeScreenShotForAppStoreInPortraitMode {
@@ -89,8 +89,8 @@
   GREYAssert(screenshot, @"Failed to take screenshot");
 
   CGRect actualRect = CGRectMake(0, 0, screenshot.size.width, screenshot.size.height);
-  GREYAssertTrue(CGRectEqualToRect(actualRect, self.grey_expectedImageRectForAppStore),
-               @"Screenshot isn't correct dimension");
+  GREYAssertTrue(CGRectEqualToRect(actualRect, [self ftr_expectedImageRectForAppStore]),
+                 @"Screenshot isn't correct dimension");
 }
 
 - (void)testTakeScreenShotForAppStoreInPortraitUpsideDownMode {
@@ -100,8 +100,8 @@
   GREYAssert(screenshot, @"Failed to take screenshot");
 
   CGRect actualRect = CGRectMake(0, 0, screenshot.size.width, screenshot.size.height);
-  GREYAssertTrue(CGRectEqualToRect(actualRect, self.grey_expectedImageRectForAppStore),
-               @"Screenshot isn't correct dimension");
+  GREYAssertTrue(CGRectEqualToRect(actualRect, [self ftr_expectedImageRectForAppStore]),
+                 @"Screenshot isn't correct dimension");
 }
 
 - (void)testTakeScreenShotForAppStoreInLandscapeLeftMode {
@@ -111,8 +111,8 @@
   GREYAssert(screenshot, @"Failed to take screenshot");
 
   CGRect actualRect = CGRectMake(0, 0, screenshot.size.width, screenshot.size.height);
-  GREYAssertTrue(CGRectEqualToRect(actualRect, self.grey_expectedImageRectForAppStore),
-               @"Screenshot isn't correct dimension");
+  GREYAssertTrue(CGRectEqualToRect(actualRect, [self ftr_expectedImageRectForAppStore]),
+                 @"Screenshot isn't correct dimension");
 }
 
 - (void)testTakeScreenShotForAppStoreInLandscapeRightMode {
@@ -122,13 +122,13 @@
   GREYAssert(screenshot, @"Failed to take screenshot");
 
   CGRect actualRect = CGRectMake(0, 0, screenshot.size.width, screenshot.size.height);
-  GREYAssertTrue(CGRectEqualToRect(actualRect, self.grey_expectedImageRectForAppStore),
-               @"Screenshot isn't correct dimension");
+  GREYAssertTrue(CGRectEqualToRect(actualRect, [self ftr_expectedImageRectForAppStore]),
+                 @"Screenshot isn't correct dimension");
 }
 
 #pragma mark - Private
 
-- (CGRect)grey_expectedImageRectForAppStore {
+- (CGRect)ftr_expectedImageRectForAppStore {
   CGRect screenRect = [UIScreen mainScreen].bounds;
   UIInterfaceOrientation orientation = [UIApplication sharedApplication].statusBarOrientation;
 

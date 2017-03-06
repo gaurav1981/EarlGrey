@@ -18,9 +18,21 @@
 #import <EarlGrey/GREYExposed.h>
 #import <EarlGrey/GREYMatcher.h>
 #import <EarlGrey/GREYMatchers.h>
+#import <EarlGrey/GREYStringDescription.h>
 #import <OCMock/OCMock.h>
 
 #import "GREYBaseTest.h"
+
+#pragma mark - Test Helpers
+
+@interface CustomUIView : UIView
+@property(nonatomic, assign) BOOL accessibilityElementIsFocused;
+@end
+
+@implementation CustomUIView : UIView
+@end
+
+#pragma mark -
 
 @interface GREYMatchersTest : GREYBaseTest
 @end
@@ -212,6 +224,15 @@
   XCTAssertFalse([matcher matches:view], @"UIView does not have title");
 }
 
+- (void)testScrollViewContentOffsetMatcher {
+  UIScrollView *scrollView = [[UIScrollView alloc] init];
+  scrollView.contentOffset = CGPointMake(10.0f, 20.0f);
+  id<GREYMatcher> matcher = grey_scrollViewContentOffset(CGPointMake(20.0f, 10.0f));
+  XCTAssertFalse([matcher matches:scrollView], @"Matcher should return false");
+  scrollView.contentOffset = CGPointMake(20.0f, 10.0f);
+  XCTAssertTrue([matcher matches:scrollView], @"Matcher should return true");
+}
+
 - (void)testIsSystemAlertViewShown {
   UIView *view = [[UIView alloc] init];
   id<GREYMatcher> matcher = grey_systemAlertViewShown();
@@ -300,18 +321,37 @@
   XCTAssertFalse([hintMatcher matches:viewWithHint], @"Matching a11y hint should return false");
 }
 
-- (void)testMatchingTestPass {
+- (void)testFocused {
+  CustomUIView *customUIView = [[CustomUIView alloc] init];
+  [customUIView setAccessibilityElementIsFocused:YES];
+  id<GREYMatcher> focusMatcher = grey_accessibilityFocused();
+  XCTAssertTrue([focusMatcher matches:customUIView], @"View should be focused");
+}
+
+- (void)testNotFocused {
+  CustomUIView *customUIView = [[CustomUIView alloc] init];
+  [customUIView setAccessibilityElementIsFocused:NO];
+  id<GREYMatcher> focusMatcher = grey_accessibilityFocused();
+  XCTAssertFalse([focusMatcher matches:customUIView], @"View should not be focused");
+}
+
+- (void)testTextMatcherPass {
   UILabel *testLabel = [[UILabel alloc] init];
   [testLabel setText:@"display text"];
   id<GREYMatcher> textMatcher = grey_text(@"display text");
   XCTAssertTrue([textMatcher matches:testLabel], @"Matching text should return true");
 }
 
-- (void)testMatchingTestFail {
+- (void)testTextMatcherFail {
   UILabel *testLabel = [[UILabel alloc] init];
   [testLabel setText:@"display text"];
+  id<GREYDescription> failureDesc = [[GREYStringDescription alloc] init];
   id<GREYMatcher> textMatcher = grey_text(@"incorrect display text");
-  XCTAssertFalse([textMatcher matches:testLabel], @"Non-matching text should return false");
+  XCTAssertFalse([textMatcher matches:testLabel describingMismatchTo:failureDesc],
+                 @"Non-matching text should return false");
+  NSRange failureMessageRange =
+      [[failureDesc description] rangeOfString:@"hasText('incorrect display text')"];
+  XCTAssertNotEqual(failureMessageRange.location, NSNotFound);
 }
 
 - (void)testBadObjectTypeFail {
@@ -412,6 +452,38 @@
   id<GREYMatcher> matcher = grey_enabled();
   XCTAssertFalse([matcher matches:child],
                  @"Untappable child of tappable parent should not be tappable");
+}
+
+- (void)testIsSelected_isTrueForSelectedControl {
+  UIControl *control = [[UIControl alloc] init];
+  control.selected = YES;
+  id<GREYMatcher> matcher = grey_selected();
+  XCTAssertTrue([matcher matches:control], @"Selected controls should be matched");
+}
+
+- (void)testIsSelected_isFalseForUnselectedControl {
+  UIControl *control = [[UIControl alloc] init];
+  control.selected = NO;
+  id<GREYMatcher> matcher = grey_selected();
+  id<GREYDescription> description = [[GREYStringDescription alloc] init];
+  XCTAssertFalse([matcher matches:control describingMismatchTo:description],
+                 @"Unselected controls should not be matched");
+  XCTAssertTrue([[description description] isEqualToString:@"selected"]);
+}
+
+- (void)testIsUserInteractionEnabled_isTrueForEnabledView {
+  UIView *view = [[UIView alloc] init];
+  view.userInteractionEnabled = YES;
+  id<GREYMatcher> matcher = grey_userInteractionEnabled();
+  XCTAssertTrue([matcher matches:view], @"Views with user interaction enabled should be matched");
+}
+
+- (void)testIsUserInteractionEnabled_isFalseForDisabledView {
+  UIView *view = [[UIView alloc] init];
+  view.userInteractionEnabled = NO;
+  id<GREYMatcher> matcher = grey_userInteractionEnabled();
+  XCTAssertFalse([matcher matches:view],
+                 @"Views with user interaction disabled should not be matched");
 }
 
 - (void)testLayoutMatcherWithSingleConstraint {

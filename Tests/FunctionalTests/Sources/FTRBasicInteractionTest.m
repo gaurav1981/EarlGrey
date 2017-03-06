@@ -26,7 +26,7 @@
   [self openTestViewNamed:@"Basic Views"];
 }
 
-- (void)testEarlGreyInvocationInsideGREYConditionUsingWait {
+- (void)testEarlGreyInvocationInsideGREYConditionUsingWaitWithLargeTimeout {
   GREYCondition *condition = [GREYCondition conditionWithName:@"conditionWithAction" block:^BOOL {
     static double stepperValue = 51;
     [[EarlGrey selectElementWithMatcher:grey_kindOfClass([UIStepper class])]
@@ -43,7 +43,7 @@
   [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
       performAction:[GREYActions actionForTap]];
 
-  // Setup an action that grabs a label and returns it's text
+  // Setup an action that grabs a label and returns its text
   __block NSString *text;
   id actionBlock = ^(UILabel *element, __strong NSError **errorOrNil) {
     text = element.text;
@@ -69,7 +69,7 @@
   [[EarlGrey selectElementWithMatcher:grey_keyWindow()] performAction:[GREYActions actionForTap]];
 
   UITapGestureRecognizer *tapGestureRecognizer =
-      [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissWindow:)];
+      [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(ftr_dismissWindow:)];
   tapGestureRecognizer.numberOfTapsRequired = 1;
 
   // Create a custom window that dismisses itself when tapped.
@@ -86,10 +86,6 @@
 
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"TopMostWindow")]
       assertWithMatcher:grey_notVisible()];
-}
-
-- (void)dismissWindow:(UITapGestureRecognizer *)sender {
-  [sender.view setHidden:YES];
 }
 
 - (void)testRootViewControllerSetMultipleTimesOnMainWindow {
@@ -131,10 +127,17 @@
   [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
       performAction:[GREYActions actionForTap]];
 
-  [[[EarlGrey selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(@"Type Something Here"),
-                                                  grey_kindOfClass([UITextField class]),
-                                                  nil)]
-      performAction:grey_tapAtPoint(CGPointMake(0, 0))]
+  GREYElementInteraction *typeHere =
+      [EarlGrey selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(@"Type Something Here"),
+                                                    grey_kindOfClass([UITextField class]),
+                                                    nil)];
+
+  [[typeHere performAction:[GREYActions actionForReplaceText:@"Hello 2"]]
+      assertWithMatcher:grey_text(@"Hello 2")];
+
+  [typeHere performAction:[GREYActions actionForClearText]];
+
+  [[typeHere performAction:grey_tapAtPoint(CGPointMake(0, 0))]
       performAction:[GREYActions actionForTypeText:@"Hello!"]];
 
   [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"return")]
@@ -215,6 +218,17 @@
       assertWithMatcher:grey_nil()];
 }
 
+- (void)DISABLED_testLongPressOnTextField {
+  [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
+     performAction:[GREYActions actionForTap]];
+
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"foo")]
+     performAction:[GREYActions actionForLongPressWithDuration:1.0f]];
+
+  [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
+     assertWithMatcher:grey_notNil()];
+}
+
 - (void)testBasicInteractionWithStepper {
   [[EarlGrey selectElementWithMatcher:grey_kindOfClass([UIStepper class])]
       performAction:[GREYActions actionForSetStepperValue:87]];
@@ -259,14 +273,14 @@
 - (void)testInteractionWithLabelWithParentHiddenAndUnhidden {
   GREYActionBlock *hideTab2Block =
       [GREYActionBlock actionWithName:@"hideTab2"
-                         performBlock:^BOOL(id element, NSError *__strong * error) {
+                         performBlock:^BOOL(id element, NSError *__strong *error) {
                            UIView *superView = element;
                            superView.hidden = YES;
                            return YES;
       }];
   GREYActionBlock *unhideTab2Block =
       [GREYActionBlock actionWithName:@"unhideTab2"
-                         performBlock:^BOOL(id element, NSError *__strong * error) {
+                         performBlock:^BOOL(id element, NSError *__strong *error) {
                            UIView *superView = element;
                            superView.hidden = NO;
                            return YES;
@@ -286,14 +300,14 @@
 - (void)testInteractionWithLabelWithParentTranslucentAndOpaque {
   GREYActionBlock *makeTab2OpaqueBlock =
       [GREYActionBlock actionWithName:@"makeTab2Opaque"
-                         performBlock:^BOOL(id element, NSError *__strong * error) {
+                         performBlock:^BOOL(id element, NSError *__strong *error) {
                            UIView *superView = element;
                            superView.alpha = 1;
                            return YES;
       }];
   GREYActionBlock *makeTab2TranslucentBlock =
       [GREYActionBlock actionWithName:@"makeTab2Translucent"
-                         performBlock:^BOOL(id element, NSError *__strong * error) {
+                         performBlock:^BOOL(id element, NSError *__strong *error) {
                            UIView *superView = element;
                            superView.alpha = 0;
                            return YES;
@@ -317,7 +331,7 @@
 - (void)testInteractionWithLabelWithWindowTranslucentAndOpaque {
   GREYActionBlock *makeWindowOpaqueBlock =
       [GREYActionBlock actionWithName:@"unhideTab2"
-                         performBlock:^BOOL(id element, NSError *__strong * error) {
+                         performBlock:^BOOL(id element, NSError *__strong *error) {
                            UIView *view = element;
                            UIWindow *window = view.window;
                            window.alpha = 1;
@@ -325,7 +339,7 @@
       }];
   GREYActionBlock *makeWindowTranslucentBlock =
       [GREYActionBlock actionWithName:@"hideTab2"
-                         performBlock:^BOOL(id element, NSError *__strong * error) {
+                         performBlock:^BOOL(id element, NSError *__strong *error) {
                            UIView *view = element;
                            UIWindow *window = view.window;
                            window.alpha = 0;
@@ -341,6 +355,25 @@
       performAction:makeWindowOpaqueBlock];
   [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForAccessibilityLabel:@"Long Press"]]
       assertWithMatcher:grey_sufficientlyVisible()];
+}
+
+- (void)testButtonSelectedState {
+  [[EarlGrey selectElementWithMatcher:[GREYMatchers matcherForText:@"Tab 2"]]
+      performAction:[GREYActions actionForTap]];
+
+  id<GREYMatcher> buttonMatcher = grey_allOf(grey_kindOfClass([UIButton class]),
+                                             grey_descendant(grey_accessibilityLabel(@"Send")),
+                                             nil);
+
+  [[EarlGrey selectElementWithMatcher:buttonMatcher] assertWithMatcher:grey_not(grey_selected())];
+  [[EarlGrey selectElementWithMatcher:buttonMatcher] performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:buttonMatcher] assertWithMatcher:grey_selected()];
+}
+
+#pragma mark - Private
+
+- (void)ftr_dismissWindow:(UITapGestureRecognizer *)sender {
+  [sender.view setHidden:YES];
 }
 
 @end

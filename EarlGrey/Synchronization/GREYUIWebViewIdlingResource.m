@@ -17,10 +17,10 @@
 #import "Synchronization/GREYUIWebViewIdlingResource.h"
 
 #import "Additions/UIWebView+GREYAdditions.h"
+#import "Additions/UIWebView+GREYAdditions+Internal.h"
 #import "Common/GREYDefines.h"
-#import "Common/GREYPrivate.h"
-#import "Synchronization/GREYBeaconImageProtocol.h"
 #import "Synchronization/GREYUIThreadExecutor.h"
+#import "Synchronization/GREYUIThreadExecutor+Internal.h"
 
 /**
  *  The maximum number of render passes to wait for before the UIWebView can be considered idle.
@@ -29,11 +29,11 @@ static const NSInteger kMaxRenderPassesToWait = 2;
 
 /**
  *  This script adds a JavaScript snippet that keeps tracks of browser's render passes in a global
- *  variable eg_renderPassesCount. This process will continue until the global variable
- *  eg_shouldTrackRendering is set to false. The return value is the number of passes the script
- *  was able to track. Note that iOS safari may drop recursively called request for animation frames
- *  if the page is loaded using UIWebView's loadHTMLString:baseURL: and also if the target page has
- *  JavaScript errors. Hence, this script must be injected multiple times.
+ *  variable @c grey_renderPassesCount. This process will continue until the global variable
+ *  @c grey_shouldTrackRendering is set to false. The return value is the number of passes the
+ *  script was able to track. Note that iOS safari may drop recursively called request for animation
+ *  frames if the page is loaded using UIWebView's loadHTMLString:baseURL: and also if the target
+ *  page has JavaScript errors. Hence, this script must be injected multiple times.
  */
 static NSString *const kRenderPassTrackerScript =
     @"  (function() {                                                                       "
@@ -52,8 +52,8 @@ static NSString *const kRenderPassTrackerScript =
     @"  })()                                                                                ";
 
 /**
- *  This script sets eg_shouldTrackRendering to false to stop any EarlGrey tracking code present on
- *  the page.
+ *  This script sets @c grey_shouldTrackRendering to false to stop any EarlGrey tracking code
+ *  present on the page.
  */
 static NSString *const kTrackerScriptCleanupScript =
     @"  (function() {                                                                       "
@@ -61,10 +61,6 @@ static NSString *const kTrackerScriptCleanupScript =
     @"  })()                                                                                ";
 
 @implementation GREYUIWebViewIdlingResource {
-  /**
-   *  Private, internal web browser view from @c _webView. Needed to traverse accessibility tree.
-   */
-  __weak id _internalWebBrowserView;
   /**
    *  Main UIWebView being interacted with.
    */
@@ -90,7 +86,6 @@ static NSString *const kTrackerScriptCleanupScript =
   if (self) {
     _webViewName = [name copy];
     _webView = webView;
-    _internalWebBrowserView = [[_webView valueForKey:@"_internal"] valueForKey:@"browserView"];
   }
   return self;
 }
@@ -106,23 +101,43 @@ static NSString *const kTrackerScriptCleanupScript =
 }
 
 - (BOOL)isIdleNow {
-  if (_webView && _internalWebBrowserView) {
-    NSString *visibilityState =
-      [self grey_evaluateAndAssertNoErrorsJavaScriptInString:@"document.visibilityState"];
-    // Ignore if document is hidden because our attempts to inject image into DOM won't work.
-    // See https://developer.mozilla.org/en-US/docs/Web/Guide/User_experience/Using_the_Page_Visibility_API
-    if (![visibilityState isEqualToString:@"hidden"]) {
-      NSString *renderPassCountResult =
-          [self grey_evaluateAndAssertNoErrorsJavaScriptInString:kRenderPassTrackerScript];
-      NSInteger renderPasses = [renderPassCountResult integerValue];
-      if (renderPasses < kMaxRenderPassesToWait) {
-        return NO;
-      } else {
-        // Run the cleanup script and discard the return value.
-        [self grey_evaluateAndAssertNoErrorsJavaScriptInString:kTrackerScriptCleanupScript];
-      }
-    }
+  UIWebView *strongWebView = _webView;
 
+  if (!strongWebView) {
+    [[GREYUIThreadExecutor sharedInstance] deregisterIdlingResource:self];
+    return YES;
+  }
+
+  // Make this check before running any JavaScript. The JavaScript operations are synchronous,
+  // very heavy, and will drastically slow down page loading.
+  if ([strongWebView grey_isLoadingFrame]) {
+    return NO;
+  }
+
+  NSString *documentState =
+      [self grey_evaluateAndAssertNoErrorsJavaScriptInString:@"document.readyState"];
+  if ([documentState isEqualToString:@"loading"]) {
+    return NO;
+  }
+
+  NSString *visibilityState =
+      [self grey_evaluateAndAssertNoErrorsJavaScriptInString:@"document.visibilityState"];
+  // Ignore if document is hidden because our attempts to inject image into DOM won't work.
+  // See https://developer.mozilla.org/en-US/docs/Web/Guide/User_experience/Using_the_Page_Visibility_API
+  if (![visibilityState isEqualToString:@"hidden"]) {
+    NSString *renderPassCountResult =
+        [self grey_evaluateAndAssertNoErrorsJavaScriptInString:kRenderPassTrackerScript];
+    NSInteger renderPasses = [renderPassCountResult integerValue];
+    if (renderPasses < kMaxRenderPassesToWait) {
+      return NO;
+    } else {
+      // Run the cleanup script and discard the return value.
+      [self grey_evaluateAndAssertNoErrorsJavaScriptInString:kTrackerScriptCleanupScript];
+    }
+  }
+
+  id internalWebBrowserView = [[_webView valueForKey:@"_internal"] valueForKey:@"browserView"];
+  if (internalWebBrowserView) {
     @autoreleasepool {
       // There is a slight delay between a UIWebView delegate receiving webViewDidFinishLoad and
       // all of the WebAccessibilityObjectWrappers corresponding to the text on the web page being
@@ -131,7 +146,7 @@ static NSString *const kTrackerScriptCleanupScript =
       // If we traverse the tree ensuring none are returning NSNotFound,
       // then we know loading is most likely done.
       NSMutableArray *runningElementHierarchy = [[NSMutableArray alloc] init];
-      [runningElementHierarchy addObject:_internalWebBrowserView];
+      [runningElementHierarchy addObject:internalWebBrowserView];
       while (runningElementHierarchy.count > 0) {
         id currentElement = [runningElementHierarchy firstObject];
         NSInteger accessibilityElementCount = [currentElement accessibilityElementCount];
@@ -150,7 +165,6 @@ static NSString *const kTrackerScriptCleanupScript =
       }
     }
   }
-
   // If all of the child accessibility elements have valid element counts, then iOS is done
   // populating the WebAccessibilityObjectWrappers.
   [[GREYUIThreadExecutor sharedInstance] deregisterIdlingResource:self];

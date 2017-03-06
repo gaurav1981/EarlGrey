@@ -1,3 +1,10 @@
 *~
 *.sw[o-p]
 .DS_Store
+xcuserdata
+*.gem
+fishhook/
+OCHamcrest.framework
+Tests/UnitTests/ocmock/
+Tests/UnitTests/UnitTests.xcodeproj/project.xcworkspace/
+Tests/FunctionalTests/FunctionalTests.xcodeproj/project.xcworkspace/

@@ -34,7 +34,11 @@ static id gDelegate;
 
 @end
 
+#if defined(__IPHONE_10_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
+@interface CAAnimation_GREYAdditionsTest : GREYBaseTest<CAAnimationDelegate>
+#else
 @interface CAAnimation_GREYAdditionsTest : GREYBaseTest
+#endif
 @end
 
 @implementation CAAnimation_GREYAdditionsTest {
@@ -49,9 +53,10 @@ static id gDelegate;
   _swizzler = [[GREYSwizzler alloc] init];
 
   // Swizzle setDelegate so we can tell if animation tracking logic was injected in init method.
-  BOOL swizzled = [_swizzler swizzleClass:[CAAnimation class]
-                      replaceInstanceMethod:@selector(setDelegate:)
-                                 withMethod:@selector(greyswizzled_test_setDelegate:)];
+  SEL swizzledSEL = @selector(greyswizzled_test_setDelegate:);
+  GREY_UNUSED_VARIABLE BOOL swizzled = [_swizzler swizzleClass:[CAAnimation class]
+                                         replaceInstanceMethod:@selector(setDelegate:)
+                                                    withMethod:swizzledSEL];
   NSAssert(swizzled, @"Could not swizzle CAAnimation setDelegate");
 }
 
@@ -76,9 +81,8 @@ static id gDelegate;
 - (void)testSimpleAnimation {
   CAAnimation *animation = [CAAnimation animation];
   [[animation delegate] animationDidStart:animation];
-  XCTAssertEqual(kGREYPendingCAAnimation,
-                 [[GREYAppStateTracker sharedInstance] currentState],
-                 @"Should track animation start.");
+  XCTAssertTrue(kGREYPendingCAAnimation & [[GREYAppStateTracker sharedInstance] currentState],
+                @"Should track animation start.");
   [[animation delegate] animationDidStop:animation finished:YES];
   XCTAssertEqual(kGREYIdle,
                  [[GREYAppStateTracker sharedInstance] currentState],
@@ -103,9 +107,8 @@ static id gDelegate;
   CAAnimation *animation = [[CAAnimation alloc] init];
   [animation.delegate animationDidStart:animation];
 
-  XCTAssertEqual(kGREYPendingCAAnimation,
-                 [[GREYAppStateTracker sharedInstance] currentState],
-                 @"Should be in pending ca animation state");
+  XCTAssertTrue(kGREYPendingCAAnimation & [[GREYAppStateTracker sharedInstance] currentState],
+                @"Should be in pending ca animation state");
 }
 
 - (void)testDelegateSetsStateToStopped {
@@ -134,9 +137,8 @@ static id gDelegate;
                  @"Should be in idle state");
   [animation grey_setAnimationState:kGREYAnimationStarted];
 
-  XCTAssertEqual(kGREYPendingCAAnimation,
-                 [[GREYAppStateTracker sharedInstance] currentState],
-                 @"Should be in pending ca animation state");
+  XCTAssertTrue(kGREYPendingCAAnimation & [[GREYAppStateTracker sharedInstance] currentState],
+                @"Should be in pending ca animation state");
 }
 
 - (void)testAnimationCompleted {
@@ -153,9 +155,8 @@ static id gDelegate;
   animation.duration = duration;
 
   [animation grey_setAnimationState:kGREYAnimationStarted];
-  XCTAssertEqual([[GREYAppStateTracker sharedInstance] currentState],
-                 kGREYPendingCAAnimation,
-                 @"Should be in pending ca animation state");
+  XCTAssertTrue([[GREYAppStateTracker sharedInstance] currentState] & kGREYPendingCAAnimation,
+                @"Should be in pending ca animation state");
 
   // Drain for 1.0 second because a tiny buffer time is added to the actual duration to make sure
   // animation really completes before we decide to forcefully untrack it.
@@ -172,9 +173,8 @@ static id gDelegate;
   animation.duration = duration;
 
   [animation grey_setAnimationState:kGREYAnimationStarted];
-  XCTAssertEqual([[GREYAppStateTracker sharedInstance] currentState],
-                 kGREYPendingCAAnimation,
-                 @"Should be in pending ca animation state");
+  XCTAssertTrue([[GREYAppStateTracker sharedInstance] currentState] & kGREYPendingCAAnimation,
+                @"Should be in pending ca animation state");
 
   // Drain for 1.0 second because a tiny buffer time is added to the actual duration to make sure
   // animation really completes before we decide to forcefully untrack it.
@@ -193,9 +193,8 @@ static id gDelegate;
   animation.duration = duration;
 
   [animation grey_setAnimationState:kGREYAnimationStarted];
-  XCTAssertEqual([[GREYAppStateTracker sharedInstance] currentState],
-                 kGREYPendingCAAnimation,
-                 @"Should be in pending ca animation state");
+  XCTAssertTrue([[GREYAppStateTracker sharedInstance] currentState] & kGREYPendingCAAnimation,
+                @"Should be in pending ca animation state");
 
   // Drain for 1.0 second because a tiny buffer time is added to the actual duration to make sure
   // animation really completes before we decide to forcefully untrack it.

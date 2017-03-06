@@ -25,11 +25,36 @@
   id<GREYMatcher> _matcherForNonExistingTab;
 }
 
++ (void)setUp {
+  @try {
+    GREYFail(@"Testing if this raises an exception and fails the suite");
+    assert(NULL);
+  } @catch (id expectedException) {
+    if (![expectedException isKindOfClass:[GREYFrameworkException class]]) {
+      NSLog(@"Incorrect exception class: %@ raised.", [expectedException class]);
+      @throw;
+    }
+  }
+}
+
 - (void)setUp {
   [super setUp];
 
   [self openTestViewNamed:@"Basic Views"];
   _matcherForNonExistingTab = grey_text(@"Tab That Does Not Exist");
+}
+
+- (void)testCallAllAssertionDefines {
+  GREYAssert(42, @"42 should assert fine.");
+  GREYAssertTrue(1 == 1, @"1 should be equal to 1");
+  GREYAssertFalse(0 == 1, @"0 shouldn't be equal to 1");
+  GREYAssertEqual(1, 1, @"1 should be equal to 1");
+  GREYAssertNotEqual(1, 2, @"1 should not be equal to 2");
+  GREYAssertEqualObjects(@"foo", [[NSString alloc] initWithFormat:@"foo"],
+                         @"strings foo must be equal");
+  GREYAssertNotEqualObjects(@"foo", @"bar", @"string foo and bar must not be equal");
+  GREYAssertNil(nil, @"nil should be nil");
+  GREYAssertNotNil([[NSObject alloc] init], @"a valid object should not be nil");
 }
 
 - (void)testAssertionErrorAPI {
@@ -40,7 +65,8 @@
 
   [[EarlGrey selectElementWithMatcher:_matcherForNonExistingTab]
       assertWithMatcher:grey_nil() error:&error];
-  GREYAssertNil(error, @"Must be nil");
+  GREYAssertTrue(error.code == kGREYInteractionElementNotFoundErrorCode,
+                 @"The error code should point to element not found");
 
   [[EarlGrey selectElementWithMatcher:_matcherForNonExistingTab]
       assertWithMatcher:grey_notNil() error:&error];

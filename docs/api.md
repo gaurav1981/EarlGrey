@@ -113,19 +113,25 @@ label `Send` **and** is displayed on the screen.
 ```objc
 id<GREYMatcher> visibleSendButtonMatcher =
     grey_allOf(grey_accessibilityLabel(@"Send"), grey_sufficientlyVisible(), nil);
-    
+
 [[EarlGrey selectElementWithMatcher:visibleSendButtonMatcher]
     performAction:grey_tap()];
 ```
+
+Note that with `grey_allOf` the order matters. If `grey_sufficientlyVisible` is used first, then every element
+in the entire application will be checked for visibility. It's important to order matchers from
+most selective (such as accessibility label and accessibility id) to least.
 
 Next, with `inRoot`, the following statement finds an element that has the accessibility label set
 to `Send` and is contained in a UI element that is an instance of the `SendMessageView` class.
 
 ```objc
 [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Send")]
-           inRoot:grey_kindOfClass([SendMessageView class])] 
+    inRoot:grey_kindOfClass([SendMessageView class])]
     performAction:grey_tap()];
 ```
+
+Note: For compatibility with Swift, we use `grey_allOfMatchers()` and `grey_anyOfMatchers()` instead of `grey_allOf()` and `grey_anyOf()` respectively.
 
 #### Custom Matchers
 
@@ -241,10 +247,14 @@ object containing failure details.
 
 ```objc
 NSError *error;
-[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"TapMe")]
+[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Non-Existent-Ax-Id")]
     performAction:grey_tap()
             error:&error];
 ```
+
+In the above case, an exception **will not** be thrown for the EarlGrey interaction being performed
+on a non-existent element. Instead, the error object passed will save the failure details and not
+fail the test immediately. The error details can then be perused for finding the failure details.
 
 #### Custom Actions
 
@@ -298,7 +308,7 @@ you with an `NSError` object that contains details about the failure.
 ```objc
 NSError *error;
 [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"ClickMe")]
-    assertWithMatcher:grey_sufficientlyVisible() 
+    assertWithMatcher:grey_sufficientlyVisible()
                 error:&error];
 ```
 
@@ -390,8 +400,7 @@ framework handler. To create a custom failure handler, write a class that confor
 
 - (void)setInvocationFile:(NSString *)fileName
         andInvocationLine:(NSUInteger)lineNumber {
-  // Record the file name and line number of the statement which was executing
-before the
+  // Record the file name and line number of the statement which was executing before the
   // failure occurred.
 }
 @end
@@ -414,6 +423,12 @@ nil
 non-nil value
   * `GREYAssertEqual(left, right, reason, ...)` — Fails if left != right for scalar
 types
+  * `GREYAssertNotEqual(left, right, reason, ...)` — Fails if left == right for scalar
+types
+  * `GREYAssertEqualObjects(left, right, reason, ...)` — Fails if [left isEqual:right] returns
+false
+  * `GREYAssertNotEqualObjects(left, right, reason, ...)` — Fails if [left isEqual:right] returns
+true
   * `GREYFail(reason, ...)` — Fails immediately with the provided reason
   * `GREYFailWithDetails(reason, details, ...)` — Fails immediately with the provided reason and
   details
@@ -506,8 +521,8 @@ to suit the needs of your app. For example:
 NSTimers that EarlGrey should synchronize with.
 - `kGREYConfigKeyDispatchAfterMaxTrackableDelay` can be used to specify the maximum delay
 for future executions using `dispatch_after` calls that EarlGrey must synchronize with.
-- `kGREYConfigKeyURLBlacklistRegex` can be used to specify a black list of URLs that EarlGrey must **not**
-synchronize with.
+- `kGREYConfigKeyURLBlacklistRegex` can be used to specify a list of URLs for which EarlGrey should
+**not** wait.
 
 And several such configurations are available in [GREYConfiguration](../EarlGrey/Common/GREYConfiguration.h).
 See below for some specific use cases in detail.
@@ -515,15 +530,15 @@ See below for some specific use cases in detail.
 ### Network
 
 By default, EarlGrey synchronizes with all network calls, but you can customize this behavior by
-providing a regular expression to skip over certain URLs. Note that even though only one blacklist
-regular expression can be specified, it can be used to skip multiple URLs. To construct a regular
-expression that matches two distinct URLs, you can use an `OR` (|) operator in the regular
-expression. For example, `(http://www.google.com|http://www.youtube.com)` (unescaped for clarity) matches all URLs matching either
-[http://www.google.com](http://www.google.com) or
-[http://www.youtube.com](http://www.youtube.com).
+providing regular expressions to skip over certain URLs. To blacklist a URL, create a regular
+expression that matches the URL, add it to an `NSArray` and pass it to `GREYConfiguration`.
+For multiple URLs, repeat the same process by creating one regular expression for each URL.
+For example, to tell the framework not to wait for www.google.com and www.youtube.com,
+do something like:
 
 ```objc
-[[GREYConfiguration sharedInstance] setValue:@".*\\.foo\\.com/.*"
+NSArray *blacklist = @[ @".*www\\.google\\.com", @".*www\\.youtube\\.com" ];
+[[GREYConfiguration sharedInstance] setValue:blacklist
                                 forConfigKey:kGREYConfigKeyURLBlacklistRegex];
 ```
 

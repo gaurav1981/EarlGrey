@@ -22,8 +22,9 @@
 #import <objc/runtime.h>
 
 #import "GREYBaseTest.h"
+#import "GREYExposedForTesting.h"
 
-// Class that performs swizzled operations in dealloc to ensure they don't track
+// Class that performs swizzled operations in dealloc to ensure they don't track.
 @interface NSURLConnectionDealloc : NSURLConnection
 @end
 
@@ -41,9 +42,9 @@
 @end
 
 @implementation NSURLConnection_GREYAdditionsTest {
-  id _mockGREYUIStateTracker;
+  id _mockGREYAppStateTracker;
   BOOL _connectionFinished;
-  NSURLRequest *_request;
+  NSURLRequest *_localHostRequest;
   NSURLRequest *_externalRequest;
   id _capturedPendingObject;
 }
@@ -51,81 +52,84 @@
 - (void)setUp {
   [super setUp];
 
-  _mockGREYUIStateTracker =
+  _connectionFinished = NO;
+  _mockGREYAppStateTracker =
       [OCMockObject partialMockForObject:[GREYAppStateTracker sharedInstance]];
-  _request = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://127.0.0.1/"]];
-  _externalRequest =
-      [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://www.google.com"]];
+  _localHostRequest = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://localhost/"]];
+  _externalRequest = [NSURLRequest requestWithURL:[NSURL URLWithString:@"http://www.google.com"]];
   void (^blockPending)(NSInvocation *) = ^(NSInvocation *invocation) {
     __unsafe_unretained id object;
     [invocation getArgument:&object atIndex:3];
-    self->_capturedPendingObject = object;
+    _capturedPendingObject = object;
   };
-  [[[[_mockGREYUIStateTracker expect] andDo:blockPending] andForwardToRealObject]
+  [[[[_mockGREYAppStateTracker expect] andDo:blockPending] andForwardToRealObject]
       trackState:kGREYPendingNetworkRequest forElement:OCMOCK_ANY];
-  [[[_mockGREYUIStateTracker expect] andForwardToRealObject]
+  [[[_mockGREYAppStateTracker expect] andForwardToRealObject]
       untrackState:kGREYPendingNetworkRequest forElementWithID:OCMOCK_ANY];
 }
 
 - (void)tearDown {
-  [_mockGREYUIStateTracker stopMocking];
+  [_mockGREYAppStateTracker stopMocking];
+  _capturedPendingObject = nil;
   [super tearDown];
 }
 
 - (void)testConnectionClassMethodPlusDelegate {
-  NSURLConnection *connection = [NSURLConnection connectionWithRequest:_request delegate:self];
+  NSURLConnection *connection = [NSURLConnection connectionWithRequest:_localHostRequest
+                                                              delegate:self];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
   XCTAssertEqual(connection, _capturedPendingObject, @"Unexpected object was blocked.");
 }
 
 - (void)testConnectionInitPlusDelegate {
-  NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:_request delegate:self];
+  NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:_localHostRequest
+                                                                delegate:self];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
   // To make compiler happy with unused variable.
   [connection cancel];
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
   XCTAssertEqual(connection, _capturedPendingObject, @"Unexpected object was blocked.");
 }
 
 - (void)testConnectionInitPlusDelegateStartLater {
-  NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:_request
+  NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:_localHostRequest
                                                                 delegate:self
                                                         startImmediately:NO];
   [connection start];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
   XCTAssertEqual(connection, _capturedPendingObject, @"Unexpected object was blocked.");
 }
 
 - (void)testConnectionInitPlusDelegateStartNow {
-  NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:_request
+  NSURLConnection *connection = [[NSURLConnection alloc] initWithRequest:_localHostRequest
                                                                 delegate:self
                                                         startImmediately:YES];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
   // To make compiler happy with unused variable.
   [connection cancel];
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
   XCTAssertEqual(connection, _capturedPendingObject, @"Unexpected object was blocked.");
 }
 
-- (void)testConnectionClassMethodWithCompletionHandler {
+- (void)testAsyncConnectionClassMethodWithCompletionHandler {
   NSOperationQueue *queue = [[NSOperationQueue alloc] init];
 
   _connectionFinished = NO;
-  [NSURLConnection sendAsynchronousRequest:_request
+  [NSURLConnection sendAsynchronousRequest:_localHostRequest
                                      queue:queue
                          completionHandler:^(NSURLResponse *response,
                                              NSData *data,
@@ -134,31 +138,58 @@
   }];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
+}
+
+- (void)testSyncConnectionClassMethod_mainThread {
+  [_mockGREYAppStateTracker stopMocking];
+  NSURLResponse *response;
+  NSError *error;
+  [NSURLConnection sendSynchronousRequest:_localHostRequest
+                        returningResponse:&response
+                                    error:&error];
+  XCTAssertNil(_capturedPendingObject, @"synchronous connections on main thread are not tracked.");
+}
+
+- (void)testSyncConnectionClassMethod_backgroundThread {
+  __block dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+    NSURLResponse *response;
+    NSError *error;
+    [NSURLConnection sendSynchronousRequest:_localHostRequest
+                          returningResponse:&response
+                                      error:&error];
+    dispatch_semaphore_signal(semaphore);
+  });
+  dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (5 * NSEC_PER_SEC));
+  dispatch_semaphore_wait(semaphore, timeout);
+  [_mockGREYAppStateTracker verify];
 }
 
 - (void)testFilterConnectionChanges {
   // All connections should be ignored.
-  [[GREYConfiguration sharedInstance] setValue:@"."
+  [[GREYConfiguration sharedInstance] setValue:@[@"."]
                                   forConfigKey:kGREYConfigKeyURLBlacklistRegex];
-  NSURLConnection *connection1 = [[NSURLConnection alloc] initWithRequest:_request delegate:self];
+  NSURLConnection *connection1 = [[NSURLConnection alloc] initWithRequest:_localHostRequest
+                                                                 delegate:self];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
   // To make compiler happy with unused variable.
   [connection1 cancel];
 
   // All connections should be accepted.
-  [[GREYConfiguration sharedInstance] setValue:@""
+  [[GREYConfiguration sharedInstance] setValue:@[]
                                   forConfigKey:kGREYConfigKeyURLBlacklistRegex];
-  NSURLConnection *connection2 = [[NSURLConnection alloc] initWithRequest:_request delegate:self];
+  NSURLConnection *connection2 = [[NSURLConnection alloc] initWithRequest:_localHostRequest
+                                                                 delegate:self];
 
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
   // To make compiler happy with unused variable.
   [connection2 cancel];
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
   XCTAssertEqual(connection2, _capturedPendingObject, @"Unexpected object was blocked.");
 }
@@ -171,19 +202,19 @@
 
   [connection start];
   // All connections should be ignored.
-  [[GREYConfiguration sharedInstance] setValue:@"."
+  [[GREYConfiguration sharedInstance] setValue:@[@"."]
                                   forConfigKey:kGREYConfigKeyURLBlacklistRegex];
   [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];
 
-  [_mockGREYUIStateTracker verify];
-  XCTAssertTrue(self->_connectionFinished,
+  [_mockGREYAppStateTracker verify];
+  XCTAssertTrue(_connectionFinished,
                 @"We shouldn't have returned until connection has finished.");
 }
 
 - (void)testNotTrackedDuringDealloc {
   {
-    // objc_precise_lifetime required so connection is valid until end of the current scope.
-    __attribute__((objc_precise_lifetime)) NSURLConnectionDealloc *connection =
+    // NS_VALID_UNTIL_END_OF_SCOPE required so connection is valid until end of the current scope.
+    NS_VALID_UNTIL_END_OF_SCOPE NSURLConnectionDealloc *connection =
         [[NSURLConnectionDealloc alloc] init];
 
     [[GREYUIThreadExecutor sharedInstance] drainUntilIdle];

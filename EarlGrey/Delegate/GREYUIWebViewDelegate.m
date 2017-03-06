@@ -17,9 +17,11 @@
 #import "Delegate/GREYUIWebViewDelegate.h"
 
 #import "Additions/UIWebView+GREYAdditions.h"
-#import "Common/GREYPrivate.h"
+
+#import "Additions/UIWebView+GREYAdditions+Internal.h"
 #import "Synchronization/GREYAppStateTracker.h"
 #import "Synchronization/GREYUIWebViewIdlingResource.h"
+#import "Synchronization/GREYUIThreadExecutor+Internal.h"
 
 static NSString *const kAjaxListenerScheme = @"greyajaxlistener";
 static NSString *const kAjaxListenerScript =
@@ -109,7 +111,20 @@ static NSString *const kAjaxListenerScript =
   return retVal;
 }
 
+- (void)webViewDidStartLoad:(UIWebView *)webView {
+  // The web view idling resources rely on accurate tracking of the web view's loading state.
+  // Unfortunately, we cannot use UIWebView's isLoading method because it is not always accurate.
+  // isLoading can get permanently stuck in a loading state, but we can rely on the delegate
+  // callbacks being called.
+  [webView grey_setIsLoadingFrame:YES];
+
+  if ([self.originalDelegate respondsToSelector:_cmd]) {
+    [self.originalDelegate webViewDidStartLoad:webView];
+  }
+}
+
 - (void)webViewDidFinishLoad:(UIWebView *)webView {
+  [webView grey_setIsLoadingFrame:NO];
   // Inject greyAjaxHandler to monitor for any ajax calls.
   [webView stringByEvaluatingJavaScriptFromString:kAjaxListenerScript];
 
@@ -124,6 +139,7 @@ static NSString *const kAjaxListenerScript =
 }
 
 - (void)webView:(UIWebView *)webView didFailLoadWithError:(NSError *)error {
+  [webView grey_setIsLoadingFrame:NO];
   // TODO: Uninstall idling resources as well.
   [webView grey_untrackAJAXLoading];
 

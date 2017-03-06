@@ -15,6 +15,7 @@
 //
 
 #import <EarlGrey/CGGeometry+GREYAdditions.h>
+#import <EarlGrey/GREYElementHierarchy.h>
 #import <EarlGrey/GREYVisibilityChecker.h>
 
 #import "FTRBaseIntegrationTest.h"
@@ -161,6 +162,93 @@
   // Verify FTRRedBar can now be interacted with.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"FTRRedBar")]
       assertWithMatcher:grey_interactable()];
+}
+
+- (void)testVisibilityOfViewsWithSameAccessibilityLabelAndAtIndex {
+  NSError *error;
+
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"AView")]
+      assertWithMatcher:grey_sufficientlyVisible() error:&error];
+  GREYAssertEqual(error.code, kGREYInteractionMultipleElementsMatchedErrorCode, @"should be equal");
+
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"AView")]
+      performAction:grey_tap() error:&error];
+  GREYAssertEqual(error.code, kGREYInteractionMultipleElementsMatchedErrorCode, @"should be equal");
+
+  NSMutableSet *idSet = [NSMutableSet set];
+
+  // Match against the first view present.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"AView")] atIndex:0]
+      assert:[self ftr_assertOnIDSet:idSet]];
+
+  // Match against the second view present.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"AView")] atIndex:1]
+      assert:[self ftr_assertOnIDSet:idSet]];
+
+  // Match against the third and last view present.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"AView")] atIndex:2]
+      assert:[self ftr_assertOnIDSet:idSet]];
+
+  // Use the element at index matcher with an incorrect matcher.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"InvalidView")] atIndex:0]
+      assertWithMatcher:grey_sufficientlyVisible() error:&error];
+  GREYAssertEqual(error.code, kGREYInteractionElementNotFoundErrorCode, @"should be equal");
+
+  // Use the element at index matcher with an incorrect matcher on an action.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"InvalidView")] atIndex:0]
+      performAction:grey_tap() error:&error];
+  GREYAssertEqual(error.code, kGREYInteractionElementNotFoundErrorCode, @"should be equal");
+
+  // Use the element at index matcher with an incorrect matcher and also an invalid bounds.
+  // This should throw an error with the code as kGREYInteractionElementNotFoundErrorCode
+  // since we first check if the number of matched elements is greater than zero.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"InvalidView")] atIndex:99]
+      assertWithMatcher:grey_sufficientlyVisible() error:&error];
+  GREYAssertEqual(error.code, kGREYInteractionElementNotFoundErrorCode, @"should be equal");
+
+  // Use the element at index matcher with an index greater than the number of
+  // matched elements.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"AView")] atIndex:999]
+      assertWithMatcher:grey_sufficientlyVisible() error:&error];
+  GREYAssertEqual(error.code,
+                  kGREYInteractionMatchedElementIndexOutOfBoundsErrorCode,
+                  @"should be equal");
+
+  GREYAssertEqual(idSet.count, 3, @"should be equal");
+}
+
+- (void)testElementsInHierarchyDump {
+  NSString *hierarchyDump = [GREYElementHierarchy hierarchyStringForAllUIWindows];
+  NSArray *stringTargetHierarchy =
+      @[ @"========== Window 1 ==========",
+         @"========== Window 2 ==========",
+         @"<UITextEffectsWindow",
+         @"  |--<UIInputSetContainerView:",
+         @"  |  |--<UIInputSetHostView:",
+         @"<UIWindow:",
+         @"  |--<UILayoutContainerView:",
+         @"  |  |--<UINavigationTransitionView:",
+         @"  |  |  |--<UIViewControllerWrapperView:",
+         @"  |  |  |  |--<UIView",
+         @"  |  |  |  |  |--<UIView:"];
+  for (NSString *targetString in stringTargetHierarchy) {
+    XCTAssertNotEqual([hierarchyDump rangeOfString:targetString].location, (NSUInteger)NSNotFound);
+  }
+}
+
+#pragma mark - Private
+
+- (GREYAssertionBlock *)ftr_assertOnIDSet:(NSMutableSet *)idSet {
+  GREYAssertionBlock *assertAxId =
+      [GREYAssertionBlock assertionWithName:@"Check Accessibility Id"
+                    assertionBlockWithError:^BOOL(id element, NSError *__strong *errorOrNil) {
+                      NSParameterAssert(element);
+                      [grey_sufficientlyVisible() matches:element];
+                      UIView *view = element;
+                      [idSet addObject:view.accessibilityIdentifier];
+                      return YES;
+                    }];
+  return assertAxId;
 }
 
 @end

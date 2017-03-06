@@ -27,14 +27,9 @@
   [self openTestViewNamed:@"Table Views"];
 }
 
-- (void)tearDown {
-  [FTRTableViewController throwErrorIfElementProviderDequeuesCellAtIndex:-1];
-  [super tearDown];
-}
-
 - (void)testRemoveRow {
-  id<GREYMatcher> deleteRowMatcher = grey_allOf(grey_accessibilityLabel(@"Delete"),
-                                            grey_kindOfClass([UIButton class]), nil);
+  id<GREYMatcher> deleteRowMatcher =
+      grey_allOf(grey_accessibilityLabel(@"Delete"), grey_kindOfClass([UIButton class]), nil);
   for (int i = 0; i < 5; i++) {
     NSString *labelForRowToDelete = [NSString stringWithFormat:@"Row %d", i];
     [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(labelForRowToDelete)]
@@ -46,33 +41,31 @@
 }
 
 - (void)testSearchActionWithTinyScrollIncrements {
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:20 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:50 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
-  [[self scrollToCellAtIndex:0 byScrollingInAmounts:20 InDirection:kGREYDirectionUp]
+  [[self ftr_scrollToCellAtIndex:0 byScrollingInAmounts:50 InDirection:kGREYDirectionUp]
       assertWithMatcher:grey_notNil()];
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:20 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:50 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
 }
 
 - (void)testSearchActionWithLargeScrollIncrements {
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
-  [[self scrollToCellAtIndex:0 byScrollingInAmounts:200 InDirection:kGREYDirectionUp]
+  [[self ftr_scrollToCellAtIndex:0 byScrollingInAmounts:200 InDirection:kGREYDirectionUp]
       assertWithMatcher:grey_notNil()];
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
 }
 
 - (void)testScrollToTop {
   // Scroll down.
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
-  // Scroll to top.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
-      performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)];
-  // And verify that we are at the top.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
-      assertWithMatcher:[self matcherForScrolledToTop]];
+  // Scroll to top and verify that we are at the top.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
+      performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)]
+      assertWithMatcher:grey_scrolledToContentEdge(kGREYContentEdgeTop)];
 }
 
 - (void)testScrollToTopWithPositiveInsets {
@@ -82,14 +75,12 @@
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"insets toggle")]
       performAction:grey_turnSwitchOn(YES)];
   // Scroll down.
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
-  // Scroll to top.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
-      performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)];
-  // And verify that we are at the top.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
-      assertWithMatcher:[self matcherForScrolledToTop]];
+  // Scroll to top and verify that we are at the top.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
+      performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)]
+      assertWithMatcher:grey_scrolledToContentEdge(kGREYContentEdgeTop)];
 }
 
 - (void)testScrollToTopWithNegativeInsets {
@@ -99,14 +90,12 @@
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"insets toggle")]
       performAction:grey_turnSwitchOn(YES)];
   // Scroll down.
-  [[self scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
+  [[self ftr_scrollToCellAtIndex:20 byScrollingInAmounts:200 InDirection:kGREYDirectionDown]
       assertWithMatcher:grey_notNil()];
-  // Scroll to top.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
-      performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)];
-  // And verify that we are at the top.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
-      assertWithMatcher:[self matcherForScrolledToTop]];
+  // Scroll to top and verify that we are at the top.
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
+      performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)]
+      assertWithMatcher:grey_scrolledToContentEdge(kGREYContentEdgeTop)];
 }
 
 - (void)testScrollToTopWhenAlreadyAtTheTopWithoutBounce {
@@ -115,8 +104,8 @@
                                 constraints:grey_kindOfClass([UIScrollView class])
                                performBlock:^BOOL(UIScrollView *scrollView,
                                                   NSError *__strong *error) {
-    XCTAssertTrue(scrollView.bounces, @"Bounce must be set or this test is same as"
-                                      @" testScrollToTopWhenAlreadyAtTheTopWithBounce");
+    GREYAssertTrue(scrollView.bounces, @"Bounce must be set or this test is same as "
+                                       @"testScrollToTopWhenAlreadyAtTheTopWithBounce");
     scrollView.bounces = NO;
     return YES;
   }];
@@ -127,7 +116,7 @@
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
       performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)];
   // Verify that top most cell is visible.
-  [[EarlGrey selectElementWithMatcher:[self matcherForCellAtIndex:0]]
+  [[EarlGrey selectElementWithMatcher:[self ftr_matcherForCellAtIndex:0]]
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 
@@ -135,7 +124,7 @@
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
       performAction:grey_scrollToContentEdge(kGREYContentEdgeTop)];
   // Verify that top most cell is visible.
-  [[EarlGrey selectElementWithMatcher:[self matcherForCellAtIndex:0]]
+  [[EarlGrey selectElementWithMatcher:[self ftr_matcherForCellAtIndex:0]]
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 
@@ -154,58 +143,64 @@
   DescribeToBlock describe = ^void(id<GREYDescription> description) {
     [description appendText:@"scrollViewNotScrolling"];
   };
-
-  id<GREYMatcher> matchers =
+  id<GREYMatcher> notScrollingMatcher =
       grey_allOf(grey_kindOfClass([UIScrollView class]),
                  [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matchesNotScrolling
                                                       descriptionBlock:describe],
                  nil);
   [[[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"main_table_view")]
       performAction:grey_swipeSlowInDirection(kGREYDirectionDown)]
-      assertWithMatcher:matchers];
+      assertWithMatcher:notScrollingMatcher];
   [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Row 1")]
       assertWithMatcher:grey_sufficientlyVisible()];
 }
 
-- (void)testHiddenTableViewRow {
-  [FTRTableViewController throwErrorIfElementProviderDequeuesCellAtIndex:1];
-
-  // Try to access the first element and ensure that the element provider does not provide it,
-  // since it is hidden.
+- (void)testSearchActionIsNotPerformedAfterTimeout {
+  __block CGPoint expectedOffset;
+  [[EarlGrey selectElementWithMatcher:grey_kindOfClass([UITableView class])]
+      assert:[GREYAssertionBlock assertionWithName:@"offset"
+                           assertionBlockWithError:^BOOL(id element, NSError *__strong *error) {
+                          expectedOffset = [element contentOffset];
+                          return YES;
+  }]];
+  // No need to reset this, base class does it already.
+  [[GREYConfiguration sharedInstance] setValue:@(0.0)
+                                  forConfigKey:kGREYConfigKeyInteractionTimeoutDuration];
   NSError *err;
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Row 40")]
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Row 100")]
+      usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 100)
+   onElementWithMatcher:grey_kindOfClass([UITableView class])]
       assertWithMatcher:grey_interactable() error:&err];
-  GREYAssertNotNil(err, @"Looking for hidden tableview cell failed to produce an error.");
-  GREYAssertEqual(err.code, kGREYInteractionElementNotFoundErrorCode,
-                  @"Looking for hidden tableview cell produced error with incorrect code.");
+  GREYAssertEqualObjects(err.domain, kGREYInteractionErrorDomain, @"should be equal");
+  GREYAssertEqual(err.code, kGREYInteractionElementNotFoundErrorCode, @"should be equal");
+
+  [[EarlGrey selectElementWithMatcher:grey_kindOfClass([UITableView class])]
+      assert:[GREYAssertionBlock assertionWithName:@"offset didn't change"
+                           assertionBlockWithError:^BOOL(id element, NSError *__strong *error) {
+                          CGPoint actualOffset = [element contentOffset];
+                          GREYAssertTrue(CGPointEqualToPoint(actualOffset, expectedOffset),
+                                         @"Table view was scrolled after timeout."
+                                         @"Expected offset: %@ actualOffset: %@",
+                                         NSStringFromCGPoint(expectedOffset),
+                                         NSStringFromCGPoint(actualOffset));
+                          return YES;
+  }]];
 }
 
 #pragma mark - Private
 
-- (id<GREYMatcher>)matcherForCellAtIndex:(NSInteger)index {
+- (id<GREYMatcher>)ftr_matcherForCellAtIndex:(NSInteger)index {
   return grey_accessibilityLabel([NSString stringWithFormat:@"Row %d", (int)index]);
 }
 
-- (GREYElementInteraction *)scrollToCellAtIndex:(NSInteger)index
-                         byScrollingInAmounts:(CGFloat)amount
-                                  InDirection:(GREYDirection)direction {
+- (GREYElementInteraction *)ftr_scrollToCellAtIndex:(NSInteger)index
+                               byScrollingInAmounts:(CGFloat)amount
+                                        InDirection:(GREYDirection)direction {
   id<GREYMatcher> matcher =
-      grey_allOf([self matcherForCellAtIndex:index], grey_interactable(), nil);
+      grey_allOf([self ftr_matcherForCellAtIndex:index], grey_interactable(), nil);
   return [[EarlGrey selectElementWithMatcher:matcher]
                 usingSearchAction:grey_scrollInDirection(direction, amount)
              onElementWithMatcher:grey_kindOfClass([UITableView class])];
-}
-
-- (GREYElementMatcherBlock *)matcherForScrolledToTop {
-  BOOL (^isScrolledToTop)(id) = ^BOOL(id element) {
-    CGPoint contentOffset = [(UIScrollView *)element contentOffset];
-    UIEdgeInsets contentInset = [(UIScrollView *)element contentInset];
-    return contentOffset.x + contentInset.left == 0 && contentOffset.y + contentInset.top == 0;
-  };
-  return [GREYElementMatcherBlock matcherWithMatchesBlock:isScrolledToTop
-                                         descriptionBlock:^(id<GREYDescription> description) {
-    [description appendText:@"matcherForScrolledToTop"];
-  }];
 }
 
 @end
